@@ -1,18 +1,25 @@
 #include <Arduino.h>
 
-// put function declarations here:
-int myFunction(int, int);
+void moveForward();
+void turnLeft();
+void turnRight();
+void stopMotors();
+
+long readFrontUltrasonic();
+long readLeftUltrasonic();
+long readRightUltrasonic();
+
+void readLineSensors();
+
+void setupEncoders();
+long getLeftEncoderCount();
+long getRightEncoderCount();
+void resetEncoders();
 
 void setup() {
-  // put your setup code here, to run once:
-  int result = myFunction(2, 3);
+  
 }
 
 void loop() {
-  // put your main code here, to run repeatedly:
-}
-
-// put function definitions here:
-int myFunction(int x, int y) {
-  return x + y;
+  
 }
