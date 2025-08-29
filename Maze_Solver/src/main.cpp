@@ -17,6 +17,12 @@ const int LPWM2 = 27;
 const int R_EN = 22;
 const int L_EN = 23;
 
+const int IR1 = 40;
+const int IR2 = 41;
+const int IR3 = 42;
+const int IR4 = 43;
+const int IR5 = 44;
+
 void moveForward();
 void turnLeft();
 void turnRight();
