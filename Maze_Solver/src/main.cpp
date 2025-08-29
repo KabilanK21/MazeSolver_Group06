@@ -1,5 +1,22 @@
 #include <Arduino.h>
 
+#define TRIG_PIN_A 9
+#define ECHO_PIN_A 10
+#define TRIG_PIN_B 11
+#define ECHO_PIN_B 12
+#define Enco_A1 2
+#define Enco_B1 3
+#define Enco_A2 24
+#define Enco_B2 25
+
+
+const int RPWM1 = 5;
+const int LPWM1 = 6; 
+const int RPWM2 = 26;
+const int LPWM2 = 27; 
+const int R_EN = 22;
+const int L_EN = 23;
+
 void moveForward();
 void turnLeft();
 void turnRight();
