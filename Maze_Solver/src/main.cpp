@@ -48,12 +48,75 @@ long getLeftEncoderCount();  // Returns current left encoder tick count
 long getRightEncoderCount(); // Returns current right encoder tick count
 void resetEncoders();        // Resets both encoder tick counters to zero
 
-void setup()
-{
-    // Initialization code goes here (e.g., pinMode setup, Serial.begin, etc.)
+int distance_A, distance_B;  
+
+volatile long encoderCount = 0;
+const int TICKS_PER_REV = 220; // 11 pulses per revolution * 20 (gear ratio)
+
+void encoderISR() {
+  encoderCount++;
 }
 
-void loop()
-{
-    // Main control loop goes here (movement, sensor checks, etc.)
+void setup(){
+  pinMode(TRIG_PIN_A, OUTPUT);
+  pinMode(ECHO_PIN_A, INPUT);
+  pinMode(TRIG_PIN_B, OUTPUT);
+  pinMode(ECHO_PIN_B, INPUT);
+  Serial.begin(9600); 
+
+  pinMode(RPWM1, OUTPUT);
+  pinMode(LPWM1, OUTPUT);
+  pinMode(R_EN, OUTPUT);
+  pinMode(L_EN, OUTPUT);
+
+  attachInterrupt(digitalPinToInterrupt(Enco_A1), encoderISR, RISING); 
+}
+
+int getDistance(int trigPin, int echoPin){
+  digitalWrite(trigPin, LOW);
+  delayMicroseconds(2);
+  digitalWrite(trigPin, HIGH);
+  delayMicroseconds(10);
+  digitalWrite(trigPin, LOW);
+
+  long duration = pulseIn(echoPin, HIGH, 20000); 
+  int distance = duration * 0.034 / 2;  
+  return distance;
+}
+
+void loop(){
+  distance_A = getDistance(TRIG_PIN_A, ECHO_PIN_A);
+  delay(50); 
+  distance_B = getDistance(TRIG_PIN_B, ECHO_PIN_B);
+
+  int diff = abs(distance_A - distance_B);
+  int speedVal = map(diff, 0, 100, 100, 250);  
+  if (speedVal > 250) speedVal = 250;
+  if (speedVal < 100) speedVal = 100;
+
+  encoderCount = 0;
+
+  digitalWrite(R_EN, HIGH);
+  digitalWrite(L_EN, HIGH);
+
+  if (distance_A > distance_B) {
+    while (encoderCount < TICKS_PER_REV) {
+      analogWrite(RPWM1, speedVal);
+      analogWrite(LPWM1, 0);
+    }
+  } 
+
+  if (distance_B > distance_A) {
+    while (encoderCount < TICKS_PER_REV) {
+      analogWrite(LPWM1, speedVal);
+      analogWrite(RPWM1, 0);
+    }
+  } 
+
+  analogWrite(RPWM1, 0);
+  analogWrite(LPWM1, 0);
+  digitalWrite(R_EN, LOW);
+  digitalWrite(L_EN, LOW);
+
+  delay(1000);
 }
