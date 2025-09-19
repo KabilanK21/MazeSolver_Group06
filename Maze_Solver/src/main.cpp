@@ -21,11 +21,7 @@ const int R_EN = 22;  // Enable pin for right motor driver
 const int L_EN = 23;  // Enable pin for left motor driver
 
 // --- IR line sensor pins ---
-const int IR1 = 40; // Line sensor 1
-const int IR2 = 41; // Line sensor 2
-const int IR3 = 42; // Line sensor 3 (center)
-const int IR4 = 43; // Line sensor 4
-const int IR5 = 44; // Line sensor 5
+const int IR_PINS[8] = {40, 41, 42, 43, 44, 45, 46, 47} // IR Sensors
 
 // --- Function prototypes ---
 // Movement control
@@ -40,8 +36,11 @@ long readLeftUltrasonic();  // Reads distance from left ultrasonic sensor
 long readRightUltrasonic(); // Reads distance from right ultrasonic sensor
 
 // Line sensor reading
-void readLineSensors(); // Reads all IR line sensors
-
+void readLineSensors(int sensors[]) { // Reads all IR line sensors
+  for (int i = 0; i < 8; i++) {
+    sensors[i] = digitalRead(IR_PINS[i]);  
+  }
+}
 // Encoder setup and reading
 void setupEncoders();        // Initializes motor encoders
 long getLeftEncoderCount();  // Returns current left encoder tick count
@@ -119,4 +118,18 @@ void loop(){
   digitalWrite(L_EN, LOW);
 
   delay(1000);
+
+  int sensors[8];                // Array to hold sensor values
+  readLineSensors(sensors);      // Read values into array
+
+  // Example: use center sensors for decision
+  if (sensors[3] == 0 && sensors[4] == 0) {
+    moveForward();
+  } else if (sensors[0] == 0 || sensors[1] == 0 || sensors[2] == 0) {
+    turnLeft();
+  } else if (sensors[5] == 0 || sensors[6] == 0 || sensors[7] == 0) {
+    turnRight();
+  } else {
+    stopMotors();
+  }
 }
