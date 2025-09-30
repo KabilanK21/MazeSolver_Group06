@@ -57,6 +57,66 @@ void stopMotors(){    // Stops both motors
   analogWrite(RPWM_R, 0);
   analogWrite(LPWM_R, 0);
 }  
+<<<<<<< Updated upstream
+=======
+
+// Line sensor reading
+void readLineSensors(int sensors[]) { // Reads all IR line sensors
+  for (int i = 0; i < 8; i++) {
+    sensors[i] = digitalRead(IR_PINS[i]);  
+  }
+}
+
+// --- Continuous Line Following ---
+void lineFollowContinuous(){
+  int sensors[8];
+  static int lastError = 0;
+
+  while (true) {   // run continuously
+    readLineSensors(sensors);
+
+    int pos = 0, count = 0;
+    for (int i = 0; i < 8; i++) {
+      if (sensors[i] == 0) { 
+        pos += i * 100;
+        count++;
+      }
+    }
+  
+    if (count > 0) {
+      int avg = pos / count;    
+      int error = avg - 350;    
+
+      float Kp = 0.2, Kd = 1.0;
+      int derivative = error - lastError;
+      int correction = Kp * error + Kd * derivative;
+
+      int base = 150;
+      int leftPWM = base - correction;
+      int rightPWM = base + correction;
+
+      analogWrite(RPWM_L, constrain(leftPWM, 0, 255));
+      analogWrite(LPWM_L, 0);
+      analogWrite(RPWM_R, constrain(rightPWM, 0, 255));
+      analogWrite(LPWM_R, 0);
+
+      lastError = error;
+    } 
+    else {
+      stopMotors();
+      break; // exit loop (optional)
+    }
+  }
+}
+
+// Encoder setup and reading
+void setupEncoders();        // Initializes motor encoders
+long getLeftEncoderCount();  // Returns current left encoder tick count
+long getRightEncoderCount(); // Returns current right encoder tick count
+void resetEncoders();        // Resets both encoder tick counters to zero
+
+int distance_A, distance_B;  
+>>>>>>> Stashed changes
 
 volatile long encoderCount = 0;
 const int TICKS_PER_REV = 220; // 11 pulses per revolution * 20 (gear ratio)
