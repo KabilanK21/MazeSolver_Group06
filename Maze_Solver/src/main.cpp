@@ -19,6 +19,7 @@ const int RPWM_L = 5;  // Left motor forward (PWM)
 const int LPWM_L = 6;  // Left motor reverse (PWM)
 const int RPWM_R = 7; // Right motor forward (PWM)
 const int LPWM_R = 8; // Right motor reverse (PWM)
+
 const int R_EN_L = 22;  // Forward enable pin for left motor driver
 const int L_EN_L = 23;  // Reverse enable pin for left motor driver
 const int R_EN_R = 52;  // Forward enable pin for right motor driver
@@ -29,16 +30,32 @@ const int IR_PINS[8] = {40, 41, 42, 43, 44, 45, 46, 47} // IR Sensors
 
 // --- Function prototypes ---
 // Movement control
-void moveForward(); // Moves the robot forward
-void turnLeft();    // Turns the robot left
-void turnRight();   // Turns the robot right
-void stopMotors();  // Stops both motors
+void moveForward(int SPEED){   // Moves the robot forward
+  analogWrite(RPWM_L, SPEED);
+  analogWrite(RPWM_R, SPEED);
+  analogWrite(LPWM_L, 0);
+  analogWrite(LPWM_R, 0);
+} 
 
-// Ultrasonic sensor readings
-long readFrontUltrasonic(); // Reads distance from front ultrasonic sensor
-long readLeftUltrasonic();  // Reads distance from left ultrasonic sensor
-long readRightUltrasonic(); // Reads distance from right ultrasonic sensor
+void turnLeft(int SPEED){  // Turns the robot left
+  analogWrite(RPWM_R, SPEED);
+  analogWrite(LPWM_R, 0);
+  analogWrite(LPWM_L, SPEED);
+  analogWrite(RPWM_L, 0);
+}   
 
+void turnRight(int SPEED){     // Turns the robot right
+  analogWrite(LPWM_R, SPEED);
+  analogWrite(RPWM_R, 0);
+  analogWrite(RPWM_L, SPEED);
+  analogWrite(LPWM_L, 0);
+}  
+void stopMotors(){    // Stops both motors
+  analogWrite(RPWM_L, 0);
+  analogWrite(LPWM_L, 0);
+  analogWrite(RPWM_R, 0);
+  analogWrite(LPWM_R, 0);
+}  
 // Line sensor reading
 void readLineSensors(int sensors[]) { // Reads all IR line sensors
   for (int i = 0; i < 8; i++) {
@@ -98,15 +115,19 @@ int getDistance(int trigPin, int echoPin){  // FUNCTION FOR READ DISTANCE FORM T
 }
 
 void loop(){
-  distance_Left = getDistance(TRIG_PIN_LEFT, ECHO_PIN_LEFT);
+  distance_LEFT = getDistance(TRIG_PIN_LEFT, ECHO_PIN_LEFT);
   delay(50); 
   distance_RIGHT = getDistance(TRIG_PIN_RIGHT, ECHO_PIN_RIGHT);
   delay(50); 
   distance_FRONT = getDistance(TRIG_PIN_FRONT, ECHO_PIN_FRONT);
   delay(50); 
 
-
-  int diff = abs(distance_A - distance_B);
+  if (distance_LEFT > distance_RIGHT ){
+    int diff = abs(distance_LEFT - distance_RIGHT);
+  }
+  else if(distance_RIGHT > distance_LEFT){
+    int diff = abs(distance_RIGHT - distance_LEFT);
+  }
   int speedVal = map(diff, 0, 100, 100, 250);  
   if (speedVal > 250) speedVal = 250;
   if (speedVal < 100) speedVal = 100;
@@ -118,6 +139,8 @@ void loop(){
   digitalWrite(R_EN_L, HIGH);
   digitalWrite(L_EN_L, HIGH);
 
+  
+  // I THINK WE CAN REMOVE THESE
   if (distance_A > distance_B) {
     while (encoderCount < TICKS_PER_REV) {
       analogWrite(RPWM1, speedVal);
@@ -138,6 +161,7 @@ void loop(){
   digitalWrite(L_EN, LOW);
 
   delay(1000);
+// TILL THIS
 
   int sensors[8];                // Array to hold sensor values
   readLineSensors(sensors);      // Read values into array
