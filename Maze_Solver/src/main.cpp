@@ -49,26 +49,14 @@ void turnRight(int SPEED){     // Turns the robot right
   analogWrite(RPWM_R, 0);
   analogWrite(RPWM_L, SPEED);
   analogWrite(LPWM_L, 0);
-}  
+} 
+
 void stopMotors(){    // Stops both motors
   analogWrite(RPWM_L, 0);
   analogWrite(LPWM_L, 0);
   analogWrite(RPWM_R, 0);
   analogWrite(LPWM_R, 0);
 }  
-// Line sensor reading
-void readLineSensors(int sensors[]) { // Reads all IR line sensors
-  for (int i = 0; i < 8; i++) {
-    sensors[i] = digitalRead(IR_PINS[i]);  
-  }
-}
-// Encoder setup and reading
-void setupEncoders();        // Initializes motor encoders
-long getLeftEncoderCount();  // Returns current left encoder tick count
-long getRightEncoderCount(); // Returns current right encoder tick count
-void resetEncoders();        // Resets both encoder tick counters to zero
-
-int distance_A, distance_B;  
 
 volatile long encoderCount = 0;
 const int TICKS_PER_REV = 220; // 11 pulses per revolution * 20 (gear ratio)
@@ -76,6 +64,63 @@ const int TICKS_PER_REV = 220; // 11 pulses per revolution * 20 (gear ratio)
 void encoderISR() {
   encoderCount++;
 }
+
+// Line sensor reading
+void readLineSensors(int sensors[]) { // Reads all IR line sensors
+  for (int i = 0; i < 8; i++) {
+    sensors[i] = digitalRead(IR_PINS[i]);  
+  }
+}
+
+// --- Continuous Line Following ---
+void lineFollowContinuous(){
+  int sensors[8];
+  static int lastError = 0;
+
+  while (true){  
+    readLineSensors(sensors);
+
+    int pos = 0, count = 0;
+    for (int i = 0; i < 8; i++){
+      if (sensors[i] == 0){ 
+        pos += i * 100;
+        count++;
+      }
+    }
+  
+    if (count > 0){
+      int avg = pos / count;    
+      int error = avg - 350;    
+
+      float Kp = 0.2, Kd = 1.0;
+      int derivative = error - lastError;
+      int correction = Kp * error + Kd * derivative;
+
+      int base = 150;
+      int leftPWM = base - correction;
+      int rightPWM = base + correction;
+
+      analogWrite(RPWM_L, constrain(leftPWM, 0, 255));
+      analogWrite(LPWM_L, 0);
+      analogWrite(RPWM_R, constrain(rightPWM, 0, 255));
+      analogWrite(LPWM_R, 0);
+
+      lastError = error;
+    } 
+    else{
+      stopMotors();
+      break;
+    }
+  }
+}
+
+// Encoder setup and reading
+void setupEncoders();        // Initializes motor encoders
+long getLeftEncoderCount();  // Returns current left encoder tick count
+long getRightEncoderCount(); // Returns current right encoder tick count
+void resetEncoders();        // Resets both encoder tick counters to zero
+
+int distance_A, distance_B;  
 
 void setup(){
   pinMode(TRIG_PIN_FRONT, OUTPUT);
@@ -142,17 +187,21 @@ void loop(){
   digitalWrite(R_EN_L, HIGH);
   digitalWrite(L_EN_L, HIGH);
 
-  int sensors[8];                // Array to hold sensor values
-  readLineSensors(sensors);      // Read values into array
+//   int sensors[8];                // Array to hold sensor values
+//   readLineSensors(sensors);      // Read values into array
 
-  // Example: use center sensors for decision
-  if (sensors[3] == 0 && sensors[4] == 0) {
-    moveForward();
-  } else if (sensors[0] == 0 || sensors[1] == 0 || sensors[2] == 0) {
-    turnLeft();
-  } else if (sensors[5] == 0 || sensors[6] == 0 || sensors[7] == 0) {
-    turnRight();
-  } else {
-    stopMotors();
-  }
+//   // Example: use center sensors for decision
+//   if (sensors[3] == 0 && sensors[4] == 0) {
+//     moveForward();
+//   } else if (sensors[0] == 0 || sensors[1] == 0 || sensors[2] == 0) {
+//     turnLeft();
+//   } else if (sensors[5] == 0 || sensors[6] == 0 || sensors[7] == 0) {
+//     turnRight();
+//   } else {
+//     stopMotors();
+//   }
+
+  lineFollowContinuous();  // Robot will follow line automatically
+  delay(2000);
+
 }
