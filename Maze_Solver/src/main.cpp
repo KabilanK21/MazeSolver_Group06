@@ -1,24 +1,28 @@
 #include <Arduino.h>
 
 // --- Ultrasonic sensor pins ---
-#define TRIG_PIN_A 9  // Trigger pin for ultrasonic sensor A
-#define ECHO_PIN_A 10 // Echo pin for ultrasonic sensor A
-#define TRIG_PIN_B 11 // Trigger pin for ultrasonic sensor B
-#define ECHO_PIN_B 12 // Echo pin for ultrasonic sensor B
+#define TRIG_PIN_FRONT 32 // Trigger pin for ultrasonic sensor FRONT
+#define ECHO_PIN_FRONT 33 // Echo pin for ultrasonic sensor FRONT
+#define TRIG_PIN_LEFT 30 // Trigger pin for ultrasonic sensor LEFT
+#define ECHO_PIN_LEFT 31 // Echo pin for ultrasonic sensor LEFT
+#define TRIG_PIN_RIGHT 34 // Trigger pin for ultrasonic sensor RIGHT
+#define ECHO_PIN_RIGHT 35 // Echo pin for ultrasonic sensor RIGHT
 
 // --- Encoder pins ---
-#define Enco_A1 2  // Left motor encoder channel A
-#define Enco_B1 3  // Left motor encoder channel B
-#define Enco_A2 24 // Right motor encoder channel A
-#define Enco_B2 25 // Right motor encoder channel B
+#define ENCO_A_L 2  // Left motor encoder channel A
+#define ENCO_B_L 3  // Left motor encoder channel B
+#define ENCO_A_R 11 // Right motor encoder channel A
+#define ENCO_B_R 12 // Right motor encoder channel B
 
 // --- Motor driver pins ---
-const int RPWM1 = 5;  // Right motor forward (PWM)
-const int LPWM1 = 6;  // Right motor reverse (PWM)
-const int RPWM2 = 26; // Left motor forward (PWM)
-const int LPWM2 = 27; // Left motor reverse (PWM)
-const int R_EN = 22;  // Enable pin for right motor driver
-const int L_EN = 23;  // Enable pin for left motor driver
+const int RPWM_L = 5;  // Left motor forward (PWM)
+const int LPWM_L = 6;  // Left motor reverse (PWM)
+const int RPWM_R = 7; // Right motor forward (PWM)
+const int LPWM_R = 8; // Right motor reverse (PWM)
+const int R_EN_L = 22;  // Forward enable pin for left motor driver
+const int L_EN_L = 23;  // Reverse enable pin for left motor driver
+const int R_EN_R = 52;  // Forward enable pin for right motor driver
+const int L_EN_R = 53;  // Reverse enable pin for right motor driver
 
 // --- IR line sensor pins ---
 const int IR_PINS[8] = {40, 41, 42, 43, 44, 45, 46, 47} // IR Sensors
@@ -131,5 +135,5 @@ void loop(){
     turnRight();
   } else {
     stopMotors();
-  }
+  }
 }
