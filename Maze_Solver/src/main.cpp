@@ -122,15 +122,18 @@ void loop(){
   distance_FRONT = getDistance(TRIG_PIN_FRONT, ECHO_PIN_FRONT);
   delay(50); 
 
-  if (distance_LEFT > distance_RIGHT ){
-    int diff = abs(distance_LEFT - distance_RIGHT);
-  }
-  else if(distance_RIGHT > distance_LEFT){
-    int diff = abs(distance_RIGHT - distance_LEFT);
-  }
+  int diff = abs(distance_LEFT - distance_RIGHT);
   int speedVal = map(diff, 0, 100, 100, 250);  
   if (speedVal > 250) speedVal = 250;
   if (speedVal < 100) speedVal = 100;
+
+  moveForward(100);
+  if (distance_LEFT > 10){
+    turnLeft(10);
+  }
+  if(distance_RIGHT > 10){
+    turnRight(10);
+  }
 
   encoderCount = 0;
 
@@ -138,30 +141,6 @@ void loop(){
   digitalWrite(L_EN_R, HIGH);
   digitalWrite(R_EN_L, HIGH);
   digitalWrite(L_EN_L, HIGH);
-
-  
-  // I THINK WE CAN REMOVE THESE
-  if (distance_A > distance_B) {
-    while (encoderCount < TICKS_PER_REV) {
-      analogWrite(RPWM1, speedVal);
-      analogWrite(LPWM1, 0);
-    }
-  } 
-
-  if (distance_B > distance_A) {
-    while (encoderCount < TICKS_PER_REV) {
-      analogWrite(LPWM1, speedVal);
-      analogWrite(RPWM1, 0);
-    }
-  } 
-
-  analogWrite(RPWM1, 0);
-  analogWrite(LPWM1, 0);
-  digitalWrite(R_EN, LOW);
-  digitalWrite(L_EN, LOW);
-
-  delay(1000);
-// TILL THIS
 
   int sensors[8];                // Array to hold sensor values
   readLineSensors(sensors);      // Read values into array
