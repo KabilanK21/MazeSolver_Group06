@@ -61,21 +61,31 @@ void encoderISR() {
 }
 
 void setup(){
-  pinMode(TRIG_PIN_A, OUTPUT);
-  pinMode(ECHO_PIN_A, INPUT);
-  pinMode(TRIG_PIN_B, OUTPUT);
-  pinMode(ECHO_PIN_B, INPUT);
+  pinMode(TRIG_PIN_FRONT, OUTPUT);
+  pinMode(ECHO_PIN_FRONT, INPUT);
+
+  pinMode(TRIG_PIN_LEFT, OUTPUT);
+  pinMode(ECHO_PIN_LEFT, INPUT);
+
+  pinMode(TRIG_PIN_RIGHT, OUTPUT);
+  pinMode(ECHO_PIN_RIGHT, INPUT);
+
   Serial.begin(9600); 
 
-  pinMode(RPWM1, OUTPUT);
-  pinMode(LPWM1, OUTPUT);
-  pinMode(R_EN, OUTPUT);
-  pinMode(L_EN, OUTPUT);
+  pinMode(RPWM_L, OUTPUT);
+  pinMode(LPWM_L, OUTPUT);
+  pinMode(RPWM_R, OUTPUT);
+  pinMode(LPWM_R, OUTPUT);
+
+  pinMode(R_EN_L, OUTPUT);
+  pinMode(L_EN_L, OUTPUT);
+  pinMode(R_EN_R, OUTPUT);
+  pinMode(L_EN_R, OUTPUT);
 
   attachInterrupt(digitalPinToInterrupt(Enco_A1), encoderISR, RISING); 
 }
 
-int getDistance(int trigPin, int echoPin){
+int getDistance(int trigPin, int echoPin){  // FUNCTION FOR READ DISTANCE FORM THE ROBOT
   digitalWrite(trigPin, LOW);
   delayMicroseconds(2);
   digitalWrite(trigPin, HIGH);
@@ -88,9 +98,13 @@ int getDistance(int trigPin, int echoPin){
 }
 
 void loop(){
-  distance_A = getDistance(TRIG_PIN_A, ECHO_PIN_A);
+  distance_Left = getDistance(TRIG_PIN_LEFT, ECHO_PIN_LEFT);
   delay(50); 
-  distance_B = getDistance(TRIG_PIN_B, ECHO_PIN_B);
+  distance_RIGHT = getDistance(TRIG_PIN_RIGHT, ECHO_PIN_RIGHT);
+  delay(50); 
+  distance_FRONT = getDistance(TRIG_PIN_FRONT, ECHO_PIN_FRONT);
+  delay(50); 
+
 
   int diff = abs(distance_A - distance_B);
   int speedVal = map(diff, 0, 100, 100, 250);  
@@ -99,8 +113,10 @@ void loop(){
 
   encoderCount = 0;
 
-  digitalWrite(R_EN, HIGH);
-  digitalWrite(L_EN, HIGH);
+  digitalWrite(R_EN_R, HIGH);
+  digitalWrite(L_EN_R, HIGH);
+  digitalWrite(R_EN_L, HIGH);
+  digitalWrite(L_EN_L, HIGH);
 
   if (distance_A > distance_B) {
     while (encoderCount < TICKS_PER_REV) {
