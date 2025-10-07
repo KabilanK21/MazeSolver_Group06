@@ -22,8 +22,8 @@ const int LPWM_R = 8; // Right motor reverse (PWM)
 
 const int R_EN_L = 22;  // Forward enable pin for left motor driver
 const int L_EN_L = 23;  // Reverse enable pin for left motor driver
-const int R_EN_R = 52;  // Forward enable pin for right motor driver
-const int L_EN_R = 53;  // Reverse enable pin for right motor driver
+const int R_EN_R = 24;  // Forward enable pin for right motor driver
+const int L_EN_R = 25;  // Reverse enable pin for right motor driver
 
 // --- IR line sensor pins ---
 const int IR_PINS[8] = {40, 41, 42, 43, 44, 45, 46, 47} // IR Sensors
