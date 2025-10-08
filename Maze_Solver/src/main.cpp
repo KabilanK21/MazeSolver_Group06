@@ -139,19 +139,13 @@ void moveForwardForTime(int speedL, int speedR, int durationMs) {
 }
 
 void turnRight90(int speed, int durationMs) {
-  analogWrite(LPWM_L, speed);
-  analogWrite(RPWM_L, 0);
-  analogWrite(LPWM_R, 0);
-  analogWrite(RPWM_R, speed);
+  setMotorSpeeds(speed, -speed);
   delay(durationMs);
   stopMotors();
 }
 
 void turnLeft90(int speed, int durationMs) {
-  analogWrite(LPWM_L, 0);
-  analogWrite(RPWM_L, speed);
-  analogWrite(LPWM_R, speed);
-  analogWrite(RPWM_R, 0);
+  setMotorSpeeds(-speed, speed);
   delay(durationMs);
   stopMotors();
 }
@@ -174,21 +168,21 @@ void loop() {
     Serial.println("Front & Left blocked -> move forward and turn right");
     stopMotors();
     delay(200);
-    moveForwardForTime(40, 400, 400);
-    turnRight90(40, 600);
+    moveForwardForTime(70, 70, 400);
+    turnRight90(80, 450);
   }
 
   // --- Case 2: Front only blocked ---
-  else if (distFront < 7) {
+  else if (distFront < 10) {
     stopMotors();
-    delay(800);
-    if (distRight > 25) turnRight90(40, 600);
-    else if (distLeft > 25) turnLeft90(40, 600);
-    else turnRight90(40, 600); // dead end
+    delay(200);
+    if (distRight > 25) turnRight90(80, 450);
+    else if (distLeft > 25) turnLeft90(80, 450);
+    else turnRight90(80, 900); // dead end
   }
 
   // --- Case 3: Path correction ---
-  else if (distFront > 20){
+  else {
     long diff = distLeft - distRight;
     int correction = diff * 1.5;
     correction = constrain(correction, -30, 30);
