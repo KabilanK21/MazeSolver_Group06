@@ -228,6 +228,7 @@ void turnRight90(int speed)
     long leftMoved = abs(encoderCountLeft - startLeft);
     long rightMoved = abs(encoderCountRight - startRight);
     interrupts();
+    delay(turnDelay);
     if (leftMoved >= countsFor90Deg || rightMoved >= countsFor90Deg)
       break;
   }
