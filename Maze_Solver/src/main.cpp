@@ -18,7 +18,7 @@ float error = 0, lastError = 0, integral = 0;
 
 // ======================= MOTOR DRIVER CONFIG =======================
 #define RPWM_L 6
-#define LPWM_L 7
+#define LPWM_L 5
 #define RPWM_R 10
 #define LPWM_R 9
 
@@ -44,11 +44,11 @@ volatile long encoderCountRight = 0;
 #define ECHO_RIGHT 37
 
 // ======================= MAZE NAVIGATION CONFIG =======================
-int baseSpeed = 70;
-int frontThreshold = 8;
-int sideThreshold = 25;
+int baseSpeed = 50;
+int frontThreshold = 6;
+int sideThreshold = 15;
 float correctionGain = 1.5;
-long countsFor90Deg = 180;
+long countsFor90Deg = 120;
 long turnDelay = 0;
 long turnD = 300;
 long forwardDelayAfterGap = 400;
@@ -61,7 +61,7 @@ const unsigned long printInterval = 500;
 
 // ======================= MODE CONTROL =======================
 enum Mode { LINE_FOLLOWER, MAZE_SOLVER };
-Mode currentMode = LINE_FOLLOWER; // Start in line follower mode
+Mode currentMode = MAZE_SOLVER; // Start in line follower mode
 
 // ======================= ENCODER INTERRUPTS =======================
 void readEncoderLeft()
@@ -122,7 +122,7 @@ long getDistance(int trigPin, int echoPin)
   digitalWrite(trigPin, HIGH);
   delayMicroseconds(10);
   digitalWrite(trigPin, LOW);
-  long duration = pulseIn(echoPin, HIGH, 30000);
+  long duration = pulseIn(echoPin, HIGH, 6000);
   long distance = duration * 0.034 / 2;
   if (distance == 0)
     distance = 300;
@@ -204,14 +204,20 @@ void lineFollowerLoop()
 // ======================= MAZE SOLVER LOGIC =======================
 void moveForward(long distLeft, long distRight)
 {
-  long diff = distLeft - distRight;
-  int correction = diff * correctionGain;
-  correction = constrain(correction, -30, 30);
-  int adjLeft = baseSpeed - correction;
-  int adjRight = baseSpeed + correction;
-  adjLeft = constrain(adjLeft, 0, 255);
-  adjRight = constrain(adjRight, 0, 255);
-  setMotorSpeeds(adjLeft, adjRight);
+  // Only apply centering correction if both walls are detected (not a gap)
+  if (distLeft < sideThreshold && distRight < sideThreshold) {
+    long diff = distLeft - distRight;
+    int correction = diff * correctionGain;
+    correction = constrain(correction, -30, 30);
+    int adjLeft = baseSpeed - correction;
+    int adjRight = baseSpeed + correction;
+    adjLeft = constrain(adjLeft, 0, 255);
+    adjRight = constrain(adjRight, 0, 255);
+    setMotorSpeeds(adjLeft, adjRight);
+  } else {
+    // If one or both sides are open (gap), just move straight
+    setMotorSpeeds(baseSpeed, baseSpeed);
+  }
 }
 
 void turnRight90(int speed)
@@ -281,20 +287,12 @@ void mazeSolverLoop()
     if (distRight > sideThreshold)
     {
       Serial.println("Right gap detected -> move forward before turning...");
-      moveForward(distLeft, distRight);
-      delay(forwardDelayAfterGap);
-      stopMotors();
-      delay(turnD);
       Serial.println("Turning RIGHT 90°...");
       turnRight90(baseSpeed);
     }
     else if (distLeft > sideThreshold)
     {
       Serial.println("Left gap detected -> move forward before turning...");
-      moveForward(distLeft, distRight);
-      delay(forwardDelayAfterGap);
-      stopMotors();
-      delay(turnD);
       Serial.println("Turning LEFT 90°...");
       turnLeft90(baseSpeed);
     }
@@ -376,17 +374,10 @@ void setup()
 // ======================= MAIN LOOP =======================
 void loop()
 {
-  // --- Mode switch based on front ultrasonic distance ---
-  long distFront = getDistance(TRIG_FRONT, ECHO_FRONT);
-
-  // If a wall appears in front, switch to maze solver mode
-  if (distFront < 15)
-    currentMode = MAZE_SOLVER;
-  else
-    currentMode = LINE_FOLLOWER;
-
-  if (currentMode == LINE_FOLLOWER)
-    lineFollowerLoop();
-  else
+  if (currentMode == LINE_FOLLOWER){
+    lineFollowerLoop(); 
+  } 
+  else{
     mazeSolverLoop();
+  }
 }
