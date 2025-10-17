@@ -1,7 +1,7 @@
 #include <Arduino.h>
 
 // ======================= IR LINE FOLLOWER CONFIG =======================
-const int IR_PINS[8] = {41, 37, 36, 33, 32, 31, 30, 28};  
+const int IR_PINS[8] = {41, 37, 36, 33, 32, 31, 30, 28};
 const int IR_ENABLE = 40;
 
 // PID constants
@@ -24,7 +24,7 @@ float error = 0, lastError = 0, integral = 0;
 
 #define R_EN_L 22
 #define L_EN_L 23
-#define R_EN_R 24 
+#define R_EN_R 24
 #define L_EN_R 25
 
 // ======================= ENCODER CONFIG =======================
@@ -60,7 +60,11 @@ unsigned long lastPrintTime = 0;
 const unsigned long printInterval = 500;
 
 // ======================= MODE CONTROL =======================43
-enum Mode { LINE_FOLLOWER, MAZE_SOLVER };
+enum Mode
+{
+  LINE_FOLLOWER,
+  MAZE_SOLVER
+};
 Mode currentMode = MAZE_SOLVER; // Start in line follower mode
 
 // ======================= ENCODER INTERRUPTS =======================
@@ -205,7 +209,8 @@ void lineFollowerLoop()
 void moveForward(long distLeft, long distRight)
 {
   // Only apply centering correction if both walls are detected (not a gap)
-  if (distLeft < sideThreshold && distRight < sideThreshold) {
+  if (distLeft < sideThreshold && distRight < sideThreshold)
+  {
     long diff = distLeft - distRight;
     int correction = diff * correctionGain;
     correction = constrain(correction, -30, 30);
@@ -214,7 +219,9 @@ void moveForward(long distLeft, long distRight)
     adjLeft = constrain(adjLeft, 0, 255);
     adjRight = constrain(adjRight, 0, 255);
     setMotorSpeeds(adjLeft, adjRight);
-  } else {
+  }
+  else
+  {
     // If one or both sides are open (gap), just move straight
     setMotorSpeeds(baseSpeed, baseSpeed);
   }
@@ -405,10 +412,36 @@ void setup()
 // ======================= MAIN LOOP =======================
 void loop()
 {
-  if (currentMode == LINE_FOLLOWER){
+  // Read ultrasonic sensors
+  long distFront = getDistance(TRIG_FRONT, ECHO_FRONT);
+  long distLeft = getDistance(TRIG_LEFT, ECHO_LEFT);
+  long distRight = getDistance(TRIG_RIGHT, ECHO_RIGHT);
+
+  // Auto mode switching condition
+  if ((distFront > 20 && distLeft > 40) || (distFront > 20 && distRight > 40))
+  {
+    if (currentMode != LINE_FOLLOWER)
+    {
+      Serial.println("🔄 Switching to LINE FOLLOWER mode...");
+      currentMode = LINE_FOLLOWER;
+    }
+  }
+  else
+  {
+    if (currentMode != MAZE_SOLVER)
+    {
+      Serial.println("🔄 Switching to MAZE SOLVER mode...");
+      currentMode = MAZE_SOLVER;
+    }
+  }
+
+  // Run current mode
+  if (currentMode == LINE_FOLLOWER)
+  {
     lineFollowerLoop();
   }
-  else{
+  else
+  {
     mazeSolverLoop();
   }
 }
