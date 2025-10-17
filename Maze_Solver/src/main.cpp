@@ -1,14 +1,14 @@
 #include <Arduino.h>
 
 // ======================= IR LINE FOLLOWER CONFIG =======================
-const int IR_PINS[8] = {30, 31, 32, 33, 36, 37, 41, 40};  
-const int IR_ENABLE = 28;
+const int IR_PINS[8] = {41, 37, 36, 33, 32, 31, 30, 28};  
+const int IR_ENABLE = 40;
 
 // PID constants
-float Kp = 0.35;
+float Kp = 0.25;
 float Ki = 0.0;
-float Kd = 0.25;
-float speedFactor = 0.4;
+float Kd = 0.1;
+float speedFactor = 0.6;
 #define BASE_SPEED 120
 #define MAX_SPEED 180
 float TURN_GAIN = 1.6;
@@ -45,10 +45,10 @@ volatile long encoderCountRight = 0;
 
 // ======================= MAZE NAVIGATION CONFIG =======================
 int baseSpeed = 50;
-int frontThreshold = 6;
+int frontThreshold = 7;
 int sideThreshold = 15;
 float correctionGain = 1.5;
-long countsFor90Deg = 120;
+long countsFor90Deg = 140;
 long turnDelay = 0;
 long turnD = 300;
 long forwardDelayAfterGap = 400;
@@ -61,7 +61,7 @@ const unsigned long printInterval = 500;
 
 // ======================= MODE CONTROL =======================43
 enum Mode { LINE_FOLLOWER, MAZE_SOLVER };
-Mode currentMode = LINE_FOLLOWER; // Start in line follower mode
+Mode currentMode = MAZE_SOLVER; // Start in line follower mode
 
 // ======================= ENCODER INTERRUPTS =======================
 void readEncoderLeft()
@@ -223,7 +223,7 @@ void moveForward(long distLeft, long distRight)
 void turnRight90(int speed)
 {
   setMotorSpeeds(30, 30);
-  delay(200);
+  // delay(200);
   noInterrupts();
   long startLeft = encoderCountLeft, startRight = encoderCountRight;
   interrupts();
@@ -239,13 +239,13 @@ void turnRight90(int speed)
       break;
   }
   stopMotors();
-  delay(100);
+  // delay(100);
 }
 
 void turnLeft90(int speed)
 {
   setMotorSpeeds(30, 30);
-  delay(200);
+  // delay(200);
   noInterrupts();
   long startLeft = encoderCountLeft, startRight = encoderCountRight;
   interrupts();
@@ -261,7 +261,38 @@ void turnLeft90(int speed)
       break;
   }
   stopMotors();
-  delay(100);
+  // delay(100);
+}
+
+void turnAround(int speed)
+{
+  // Rotate ~180 degrees by running wheels opposite until ~2 * countsFor90Deg
+  const unsigned long maxTurnMs = 3000; // safety timeout
+  long target = countsFor90Deg * 2;
+  setMotorSpeeds(30, 30);
+  delay(120);
+  noInterrupts();
+  long startLeft = encoderCountLeft, startRight = encoderCountRight;
+  interrupts();
+  unsigned long t0 = millis();
+  setMotorSpeeds(speed, -speed);
+  while (true)
+  {
+    noInterrupts();
+    long leftMoved = abs(encoderCountLeft - startLeft);
+    long rightMoved = abs(encoderCountRight - startRight);
+    interrupts();
+    if (leftMoved >= target || rightMoved >= target)
+      break;
+    if (millis() - t0 > maxTurnMs)
+    {
+      Serial.println("turnAround: timeout — stopping turn");
+      break;
+    }
+    delay(1);
+  }
+  stopMotors();
+  // delay(100);
 }
 
 void mazeSolverLoop()
@@ -282,7 +313,7 @@ void mazeSolverLoop()
   if (distFront < frontThreshold)
   {
     stopMotors();
-    delay(100);
+    // delay(100);
 
     if (distRight > sideThreshold)
     {
@@ -299,7 +330,7 @@ void mazeSolverLoop()
     else
     {
       Serial.println("Dead end -> Turn RIGHT by default");
-      turnRight90(baseSpeed);
+      turnAround(baseSpeed);
     }
 
     delay(200);
