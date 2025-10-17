@@ -1,14 +1,14 @@
 #include <Arduino.h>
 
 // ======================= IR LINE FOLLOWER CONFIG =======================
-const int IR_PINS[8] = {40, 41, 42, 43, 44, 45, 46, 47};
-const int IR_ENABLE = 48;
+const int IR_PINS[8] = {30, 31, 32, 33, 36, 37, 41, 40};  
+const int IR_ENABLE = 28;
 
 // PID constants
 float Kp = 0.35;
 float Ki = 0.0;
 float Kd = 0.25;
-float speedFactor = 0.6;
+float speedFactor = 0.4;
 #define BASE_SPEED 120
 #define MAX_SPEED 180
 float TURN_GAIN = 1.6;
@@ -17,14 +17,14 @@ float TURN_GAIN = 1.6;
 float error = 0, lastError = 0, integral = 0;
 
 // ======================= MOTOR DRIVER CONFIG =======================
-#define RPWM_L 6
-#define LPWM_L 5
+#define RPWM_L 5
+#define LPWM_L 6
 #define RPWM_R 10
 #define LPWM_R 9
 
 #define R_EN_L 22
 #define L_EN_L 23
-#define R_EN_R 24
+#define R_EN_R 24 
 #define L_EN_R 25
 
 // ======================= ENCODER CONFIG =======================
@@ -36,12 +36,12 @@ volatile long encoderCountLeft = 0;
 volatile long encoderCountRight = 0;
 
 // ======================= ULTRASONIC CONFIG =======================
-#define TRIG_FRONT 32
-#define ECHO_FRONT 33
-#define TRIG_LEFT 30
-#define ECHO_LEFT 31
-#define TRIG_RIGHT 36
-#define ECHO_RIGHT 37
+#define TRIG_FRONT 44
+#define ECHO_FRONT 45
+#define TRIG_LEFT 42
+#define ECHO_LEFT 43
+#define TRIG_RIGHT 46
+#define ECHO_RIGHT 47
 
 // ======================= MAZE NAVIGATION CONFIG =======================
 int baseSpeed = 50;
@@ -59,9 +59,9 @@ unsigned long interval = 1000;
 unsigned long lastPrintTime = 0;
 const unsigned long printInterval = 500;
 
-// ======================= MODE CONTROL =======================
+// ======================= MODE CONTROL =======================43
 enum Mode { LINE_FOLLOWER, MAZE_SOLVER };
-Mode currentMode = MAZE_SOLVER; // Start in line follower mode
+Mode currentMode = LINE_FOLLOWER; // Start in line follower mode
 
 // ======================= ENCODER INTERRUPTS =======================
 void readEncoderLeft()
@@ -375,8 +375,8 @@ void setup()
 void loop()
 {
   if (currentMode == LINE_FOLLOWER){
-    lineFollowerLoop(); 
-  } 
+    lineFollowerLoop();
+  }
   else{
     mazeSolverLoop();
   }
