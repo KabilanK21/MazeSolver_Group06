@@ -8,10 +8,16 @@ const int IR_ENABLE = 40;
 float Kp = 0.25;
 float Ki = 0.0;
 float Kd = 0.1;
-float speedFactor = 0.6;
-#define BASE_SPEED 120
-#define MAX_SPEED 180
-float TURN_GAIN = 1.6;
+
+// ======================= SPEED CONTROLS =======================
+#define FORWARD_SPEED 120
+#define TURN_SPEED 80
+#define LINE_SPEED 180
+float forwardSpeedFactor = 0.5;
+float turnSpeedFactor = 0.5;
+float lineSpeedFactor = 0.5;
+int lastLeftSpeed = 0;
+int lastRightSpeed = 0;
 
 // PID variables
 float error = 0, lastError = 0, integral = 0;
@@ -44,28 +50,27 @@ volatile long encoderCountRight = 0;
 #define ECHO_RIGHT 47
 
 // ======================= MAZE NAVIGATION CONFIG =======================
-int baseSpeed = 50;
-int frontThreshold = 7;
+int frontThreshold = 6;
 int sideThreshold = 15;
-float correctionGain = 1.5;
-long countsFor90Deg = 140;
-long turnDelay = 0;
-long turnD = 300;
-long forwardDelayAfterGap = 400;
-unsigned long lastTime = 0;
-unsigned long interval = 1000;
+float correctionGain = 1.5; // Forward Movement Left & Right Adjustment
+long countsFor90Deg = 135;
+const int targetWallDist = 6;
+
+// ======================= LINE FOLLOWING CONFIG =======================
+
+float TURN_GAIN = 1.6;
 
 // ======================= PRINT CONTROL =======================
 unsigned long lastPrintTime = 0;
 const unsigned long printInterval = 500;
 
-// ======================= MODE CONTROL =======================43
+// ======================= MODE CONTROL =======================
 enum Mode
 {
   LINE_FOLLOWER,
   MAZE_SOLVER
 };
-Mode currentMode = MAZE_SOLVER; // Start in line follower mode
+Mode currentMode = MAZE_SOLVER; // Start in maze solver mode
 
 // ======================= ENCODER INTERRUPTS =======================
 void readEncoderLeft()
@@ -108,14 +113,19 @@ void setMotorSpeeds(int leftSpeed, int rightSpeed)
     analogWrite(LPWM_R, 0);
     analogWrite(RPWM_R, -rightSpeed);
   }
+  lastLeftSpeed = leftSpeed;
+  lastRightSpeed = rightSpeed;
 }
 
 void stopMotors()
 {
-  analogWrite(RPWM_L, 0);
-  analogWrite(LPWM_L, 0);
-  analogWrite(RPWM_R, 0);
-  analogWrite(LPWM_R, 0);
+  int step = 10;
+  for (int s = max(lastLeftSpeed, lastRightSpeed); s > 0; s -= step)
+  {
+    setMotorSpeeds(s, s);
+    delay(20);
+  }
+  setMotorSpeeds(0, 0);
 }
 
 // ======================= ULTRASONIC MEASUREMENT =======================
@@ -129,7 +139,7 @@ long getDistance(int trigPin, int echoPin)
   long duration = pulseIn(echoPin, HIGH, 6000);
   long distance = duration * 0.034 / 2;
   if (distance == 0)
-    distance = 300;
+    distance = 6;
   return distance;
 }
 
@@ -155,7 +165,7 @@ void lineFollowerLoop()
     integral = 0;
     if (millis() - lastPrintTime >= printInterval)
     {
-      Serial.println("❌ Line Lost — Motors Stopped");
+      Serial.println("Line Lost — Motors Stopped");
       lastPrintTime = millis();
     }
     delay(10);
@@ -171,14 +181,14 @@ void lineFollowerLoop()
 
   lastError = error;
 
-  int leftSpeed = BASE_SPEED - correction;
-  int rightSpeed = BASE_SPEED + correction;
+  int leftSpeed = LINE_SPEED - correction;
+  int rightSpeed = LINE_SPEED + correction;
 
-  leftSpeed *= speedFactor;
-  rightSpeed *= speedFactor;
+  leftSpeed *= lineSpeedFactor;
+  rightSpeed *= lineSpeedFactor;
 
-  leftSpeed = constrain(leftSpeed, 0, MAX_SPEED * speedFactor);
-  rightSpeed = constrain(rightSpeed, 0, MAX_SPEED * speedFactor);
+  leftSpeed = constrain(leftSpeed, 0, 255);
+  rightSpeed = constrain(rightSpeed, 0, 255);
 
   setMotorSpeeds(leftSpeed, rightSpeed);
 
@@ -208,32 +218,46 @@ void lineFollowerLoop()
 // ======================= MAZE SOLVER LOGIC =======================
 void moveForward(long distLeft, long distRight)
 {
-  // Only apply centering correction if both walls are detected (not a gap)
+  int adjLeft = FORWARD_SPEED * forwardSpeedFactor;
+  int adjRight = FORWARD_SPEED * forwardSpeedFactor;
+
   if (distLeft < sideThreshold && distRight < sideThreshold)
   {
     long diff = distLeft - distRight;
     int correction = diff * correctionGain;
     correction = constrain(correction, -30, 30);
-    int adjLeft = baseSpeed - correction;
-    int adjRight = baseSpeed + correction;
-    adjLeft = constrain(adjLeft, 0, 255);
-    adjRight = constrain(adjRight, 0, 255);
-    setMotorSpeeds(adjLeft, adjRight);
+    adjLeft -= correction;
+    adjRight += correction;
   }
-  else
+  else if (distLeft < sideThreshold && distRight >= sideThreshold)
   {
-    // If one or both sides are open (gap), just move straight
-    setMotorSpeeds(baseSpeed, baseSpeed);
+    long error = distLeft - targetWallDist;
+    int correction = error * correctionGain;
+    correction = constrain(correction, -30, 30);
+    adjLeft -= correction;
+    adjRight += correction;
   }
+  else if (distRight < sideThreshold && distLeft >= sideThreshold)
+  {
+    long error = distRight - targetWallDist;
+    int correction = error * correctionGain;
+    correction = constrain(correction, -30, 30);
+    adjLeft += correction;
+    adjRight -= correction;
+  }
+
+  adjLeft = constrain(adjLeft, 0, 255);
+  adjRight = constrain(adjRight, 0, 255);
+  setMotorSpeeds(adjLeft, adjRight);
 }
 
-void turnRight90(int speed)
+void turnRight90()
 {
-  setMotorSpeeds(30, 30);
-  // delay(200);
+  int speed = TURN_SPEED * turnSpeedFactor;
   noInterrupts();
   long startLeft = encoderCountLeft, startRight = encoderCountRight;
   interrupts();
+
   setMotorSpeeds(speed, -speed);
   while (true)
   {
@@ -241,22 +265,19 @@ void turnRight90(int speed)
     long leftMoved = abs(encoderCountLeft - startLeft);
     long rightMoved = abs(encoderCountRight - startRight);
     interrupts();
-    delay(turnDelay);
     if (leftMoved >= countsFor90Deg || rightMoved >= countsFor90Deg)
       break;
   }
   stopMotors();
-  // delay(100);
 }
 
-void turnLeft90(int speed)
+void turnLeft90()
 {
-  setMotorSpeeds(30, 30);
-  // delay(200);
+  int speed = TURN_SPEED * turnSpeedFactor;
   noInterrupts();
   long startLeft = encoderCountLeft, startRight = encoderCountRight;
   interrupts();
-  delay(turnDelay);
+
   setMotorSpeeds(-speed, speed);
   while (true)
   {
@@ -268,38 +289,26 @@ void turnLeft90(int speed)
       break;
   }
   stopMotors();
-  // delay(100);
 }
 
-void turnAround(int speed)
+void turnAround()
 {
-  // Rotate ~180 degrees by running wheels opposite until ~2 * countsFor90Deg
-  const unsigned long maxTurnMs = 3000; // safety timeout
-  long target = countsFor90Deg * 2;
-  setMotorSpeeds(30, 30);
-  delay(120);
+  int speed = TURN_SPEED * turnSpeedFactor;
   noInterrupts();
   long startLeft = encoderCountLeft, startRight = encoderCountRight;
   interrupts();
-  unsigned long t0 = millis();
-  setMotorSpeeds(speed, -speed);
+
+  setMotorSpeeds(-speed, speed);
   while (true)
   {
     noInterrupts();
     long leftMoved = abs(encoderCountLeft - startLeft);
     long rightMoved = abs(encoderCountRight - startRight);
     interrupts();
-    if (leftMoved >= target || rightMoved >= target)
+    if (leftMoved >= countsFor90Deg * 2 || rightMoved >= countsFor90Deg * 2)
       break;
-    if (millis() - t0 > maxTurnMs)
-    {
-      Serial.println("turnAround: timeout — stopping turn");
-      break;
-    }
-    delay(1);
   }
   stopMotors();
-  // delay(100);
 }
 
 void mazeSolverLoop()
@@ -313,55 +322,30 @@ void mazeSolverLoop()
   Serial.print(" L:");
   Serial.print(distLeft);
   Serial.print(" R:");
-  Serial.print(distRight);
-  Serial.print(" | Speed:");
-  Serial.println(baseSpeed);
+  Serial.println(distRight);
 
   if (distFront < frontThreshold)
   {
     stopMotors();
-    // delay(100);
-
     if (distRight > sideThreshold)
     {
-      Serial.println("Right gap detected -> move forward before turning...");
       Serial.println("Turning RIGHT 90°...");
-      turnRight90(baseSpeed);
+      turnRight90();
     }
     else if (distLeft > sideThreshold)
     {
-      Serial.println("Left gap detected -> move forward before turning...");
       Serial.println("Turning LEFT 90°...");
-      turnLeft90(baseSpeed);
+      turnLeft90();
     }
     else
     {
-      Serial.println("Dead end -> Turn RIGHT by default");
-      turnAround(baseSpeed);
+      Serial.println("Dead end — turning around...");
+      turnAround();
     }
-
-    delay(200);
   }
   else
   {
     moveForward(distLeft, distRight);
-  }
-
-  if (millis() - lastTime >= interval)
-  {
-    noInterrupts();
-    long leftCount = encoderCountLeft;
-    long rightCount = encoderCountRight;
-    encoderCountLeft = 0;
-    encoderCountRight = 0;
-    interrupts();
-
-    Serial.print("Encoders -> L:");
-    Serial.print(leftCount);
-    Serial.print(" R:");
-    Serial.println(rightCount);
-
-    lastTime = millis();
   }
 }
 
@@ -370,7 +354,6 @@ void setup()
 {
   Serial.begin(9600);
 
-  // Motor setup
   pinMode(RPWM_L, OUTPUT);
   pinMode(LPWM_L, OUTPUT);
   pinMode(RPWM_R, OUTPUT);
@@ -384,13 +367,11 @@ void setup()
   digitalWrite(R_EN_R, HIGH);
   digitalWrite(L_EN_R, HIGH);
 
-  // IR setup
   pinMode(IR_ENABLE, OUTPUT);
   digitalWrite(IR_ENABLE, HIGH);
   for (int i = 0; i < 8; i++)
     pinMode(IR_PINS[i], INPUT);
 
-  // Encoder setup
   pinMode(ENCO_A_L, INPUT_PULLUP);
   pinMode(ENCO_B_L, INPUT_PULLUP);
   pinMode(ENCO_A_R, INPUT_PULLUP);
@@ -398,7 +379,6 @@ void setup()
   attachInterrupt(digitalPinToInterrupt(ENCO_A_L), readEncoderLeft, RISING);
   attachInterrupt(digitalPinToInterrupt(ENCO_A_R), readEncoderRight, RISING);
 
-  // Ultrasonic setup
   pinMode(TRIG_FRONT, OUTPUT);
   pinMode(ECHO_FRONT, INPUT);
   pinMode(TRIG_LEFT, OUTPUT);
@@ -406,23 +386,23 @@ void setup()
   pinMode(TRIG_RIGHT, OUTPUT);
   pinMode(ECHO_RIGHT, INPUT);
 
-  Serial.println("Robot Ready — Default Mode: Line Follower");
+  Serial.println("Robot Ready — Default Mode: Maze Solver");
 }
 
 // ======================= MAIN LOOP =======================
 void loop()
 {
-  // Read ultrasonic sensors
   long distFront = getDistance(TRIG_FRONT, ECHO_FRONT);
   long distLeft = getDistance(TRIG_LEFT, ECHO_LEFT);
   long distRight = getDistance(TRIG_RIGHT, ECHO_RIGHT);
 
-  // Auto mode switching condition
-  if ((distFront > 20 && distLeft > 40) || (distFront > 20 && distRight > 40))
+  // Auto mode switching
+  if ((distFront > 20 && distLeft > 40 && distRight > 10) ||
+      (distFront > 20 && distRight > 40 && distLeft > 10))
   {
     if (currentMode != LINE_FOLLOWER)
     {
-      Serial.println("🔄 Switching to LINE FOLLOWER mode...");
+      Serial.println("Switching to LINE FOLLOWER mode...");
       currentMode = LINE_FOLLOWER;
     }
   }
@@ -430,18 +410,13 @@ void loop()
   {
     if (currentMode != MAZE_SOLVER)
     {
-      Serial.println("🔄 Switching to MAZE SOLVER mode...");
+      Serial.println("Switching to MAZE SOLVER mode...");
       currentMode = MAZE_SOLVER;
     }
   }
 
-  // Run current mode
   if (currentMode == LINE_FOLLOWER)
-  {
     lineFollowerLoop();
-  }
   else
-  {
     mazeSolverLoop();
-  }
 }
