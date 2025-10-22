@@ -16,7 +16,7 @@ Wall Following – Navigate within a grid maze using ultrasonic sensors
 
 Line Following – Cross an inclined bridge (<35°) using IR sensor arrays
 
-Pathfinding – Explore and determine the shortest route
+Pathfinding – Explore and determine the fastest route
 
 Path Optimization – Replay optimized path for faster completion
 

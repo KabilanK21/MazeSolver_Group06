@@ -121,9 +121,9 @@ void setMotorSpeeds(int leftSpeed, int rightSpeed)
 void stopMotors()
 {
   int step = 10;
-  for (int s = max(lastLeftSpeed,lastRightSpeed); s > 0; s -= step)
+  for (int s = max(lastLeftSpeed, lastRightSpeed); s > 0; s -= step)
   {
-    setMotorSpeeds(s ,s);
+    setMotorSpeeds(s, s);
     delay(20);
   }
   setMotorSpeeds(0, 0);
@@ -296,7 +296,7 @@ void turnRight90()
 
   // Short forward burst to clear the turning point
   setMotorSpeeds(forwardTarget, forwardTarget);
-  delay(300);  // brief forward movement
+  delay(300); // brief forward movement
 }
 
 void turnLeft90()
@@ -316,7 +316,7 @@ void turnLeft90()
     if (leftMoved >= countsFor90Deg || rightMoved >= countsFor90Deg)
       break;
   }
-  stopMotors(); 
+  stopMotors();
 
   // Gradually reduce turning speed instead of stopping abruptly
   const int minTurnSpeed = 30;
@@ -361,7 +361,7 @@ void turnAround()
 void mazeSolverLoop()
 {
   long distFront = getDistance(TRIG_FRONT, ECHO_FRONT);
-  long distLeft = getDistance(TRIG_LEFT, ECHO_LEFT)-98;
+  long distLeft = getDistance(TRIG_LEFT, ECHO_LEFT) - 98;
   long distRight = getDistance(TRIG_RIGHT, ECHO_RIGHT);
 
   Serial.print("F:");
@@ -371,81 +371,70 @@ void mazeSolverLoop()
   Serial.print(" R:");
   Serial.println(distRight);
 
-  // Left Hand Rule Implementation
-  // 1. If there's a left turn available, take it
-  // 2. If no left turn but can go straight, go straight
-  // 3. If no left turn and can't go straight, turn right
-  // 4. If no options available, turn around
+  // Left Hand Rule Implementation (Modified priority: Left > Right > Front)
 
-  if (distLeft > sideThreshold)  // Left turn available
+  if (distLeft > sideThreshold) // Left turn available
   {
     Serial.println("Moving forward to clear wall before left turn...");
-    // Move forward while maintaining wall following
     noInterrupts();
     long startLeft = encoderCountLeft, startRight = encoderCountRight;
     interrupts();
-    
-    while (true) {
+
+    while (true)
+    {
       long leftMoved = abs(encoderCountLeft - startLeft);
       long rightMoved = abs(encoderCountRight - startRight);
-      
+
       if (leftMoved >= countsForTurnClearance || rightMoved >= countsForTurnClearance)
         break;
-      
-      // Check front distance for safety
+
       long frontDist = getDistance(TRIG_FRONT, ECHO_FRONT);
       if (frontDist < frontThreshold)
         break;
-        
-      // Keep following walls while moving forward
+
       long currLeft = getDistance(TRIG_LEFT, ECHO_LEFT);
       long currRight = getDistance(TRIG_RIGHT, ECHO_RIGHT);
       moveForward(currLeft, currRight);
     }
-    
+
     Serial.println("Left turn available - Following left hand rule...");
-    turnLeft90();  // turnLeft90 includes its own stopMotors
+    turnLeft90();
   }
-  else if (distFront < frontThreshold)  // Can't go forward
+  else if (distRight > sideThreshold) // Right gap next priority
   {
-    if (distRight > sideThreshold)  // Can turn right
+    Serial.println("Moving forward to clear wall before right turn...");
+    noInterrupts();
+    long startLeft = encoderCountLeft, startRight = encoderCountRight;
+    interrupts();
+
+    while (true)
     {
-      Serial.println("Moving forward to clear wall before right turn...");
-      // Move forward while maintaining wall following
-      noInterrupts();
-      long startLeft = encoderCountLeft, startRight = encoderCountRight;
-      interrupts();
-      
-      while (true) {
-        long leftMoved = abs(encoderCountLeft - startLeft);
-        long rightMoved = abs(encoderCountRight - startRight);
-        
-        if (leftMoved >= countsForTurnClearance || rightMoved >= countsForTurnClearance)
-          break;
-          
-        // Check front distance for safety
-        long frontDist = getDistance(TRIG_FRONT, ECHO_FRONT);
-        if (frontDist < frontThreshold)
-          break;
-        
-        // Keep following walls while moving forward
-        long currLeft = getDistance(TRIG_LEFT, ECHO_LEFT);
-        long currRight = getDistance(TRIG_RIGHT, ECHO_RIGHT);
-        moveForward(currLeft, currRight);
-      }
-      
-      Serial.println("Can't go forward or left - Turning RIGHT...");
-      turnRight90();  // turnRight90 includes its own stopMotors
+      long leftMoved = abs(encoderCountLeft - startLeft);
+      long rightMoved = abs(encoderCountRight - startRight);
+
+      if (leftMoved >= countsForTurnClearance || rightMoved >= countsForTurnClearance)
+        break;
+
+      long frontDist = getDistance(TRIG_FRONT, ECHO_FRONT);
+      if (frontDist < frontThreshold)
+        break;
+
+      long currLeft = getDistance(TRIG_LEFT, ECHO_LEFT);
+      long currRight = getDistance(TRIG_RIGHT, ECHO_RIGHT);
+      moveForward(currLeft, currRight);
     }
-    else  // Dead end
-    {
-      Serial.println("Dead end - Turning around...");
-      turnAround();  // turnAround includes its own stopMotors
-    }
+
+    Serial.println("Right turn available - Turning RIGHT...");
+    turnRight90();
   }
-  else  // Can go forward
+  else if (distFront > frontThreshold) // Front last
   {
     moveForward(distLeft, distRight);
+  }
+  else
+  {
+    Serial.println("Dead end - Turning around...");
+    turnAround();
   }
 }
 
@@ -496,7 +485,7 @@ void loop()
   long distLeft = getDistance(TRIG_LEFT, ECHO_LEFT);
   long distRight = getDistance(TRIG_RIGHT, ECHO_RIGHT);
 
-  Auto mode switching
+  // Auto mode switching
   if ((distFront > 20 && distLeft > 40 && distRight > 10) ||
       (distFront > 20 && distRight > 40 && distLeft > 10))
   {
