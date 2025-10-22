@@ -10,7 +10,7 @@ float Ki = 0.0;
 float Kd = 0.1;
 
 // ======================= SPEED CONTROLS =======================
-#define FORWARD_SPEED 150
+#define FORWARD_SPEED 180
 #define TURN_SPEED 80
 #define LINE_SPEED 180
 float forwardSpeedFactor = 0.5;
@@ -50,12 +50,13 @@ volatile long encoderCountRight = 0;
 #define ECHO_RIGHT 47
 
 // ======================= MAZE NAVIGATION CONFIG =======================
-int frontThreshold = 7;
+int frontThreshold = 9;
 int sideThreshold = 15;
-float correctionGain = 1.5; // Forward Movement Left & Right Adjustment
-long countsFor90Deg = 150;
+float correctionGain = 2; // Forward Movement Left & Right Adjustment
+long countsFor90Deg = 135;
 const int targetWallDist = 6;
-long countsForTurnClearance = 150; // Encoder counts to move forward before turning
+long countsForTurnClearance = 95;
+const long forwardCounts = 70;
 
 // ======================= LINE FOLLOWING CONFIG =======================
 
@@ -120,7 +121,7 @@ void setMotorSpeeds(int leftSpeed, int rightSpeed)
 
 void stopMotors()
 {
-  int step = 10;
+  int step = 5;
   for (int s = max(lastLeftSpeed, lastRightSpeed); s > 0; s -= step)
   {
     setMotorSpeeds(s, s);
@@ -141,7 +142,7 @@ long getDistance(int trigPin, int echoPin)
     digitalWrite(trigPin, HIGH);
     delayMicroseconds(10);
     digitalWrite(trigPin, LOW);
-    long duration = pulseIn(echoPin, HIGH, 6000); // ~30cm max
+    long duration = pulseIn(echoPin, HIGH, 6000);
     long distance = duration * 0.034 / 2;
     if (distance == 0)
       distance = 300;
@@ -262,80 +263,97 @@ void moveForward(long distLeft, long distRight)
 void turnRight90()
 {
   int speed = TURN_SPEED * turnSpeedFactor;
+
   noInterrupts();
   long startLeft = encoderCountLeft, startRight = encoderCountRight;
   interrupts();
 
   setMotorSpeeds(speed, -speed);
+
   while (true)
   {
     noInterrupts();
-    long leftMoved = abs(encoderCountLeft - startLeft);
+    // long leftMoved = abs(encoderCountLeft - startLeft);
     long rightMoved = abs(encoderCountRight - startRight);
     interrupts();
-    if (leftMoved >= countsFor90Deg || rightMoved >= countsFor90Deg)
+
+    // if (leftMoved >= countsFor90Deg || rightMoved >= countsFor90Deg)
+    if (rightMoved >= countsFor90Deg)
       break;
   }
+
   stopMotors();
 
-  // Instead of an immediate full stop, decelerate the turn gradually to a low turning speed
-  const int minTurnSpeed = 30; // keep some low turning motion to maintain heading
-  for (int s = speed; s > minTurnSpeed; s -= 10)
-  {
-    setMotorSpeeds(s, -s);
-    delay(25);
-  }
+  noInterrupts();
+  startLeft = encoderCountLeft, startRight = encoderCountRight;
+  interrupts();
 
-  // Smoothly transition from slow turning into forward motion (ramp-up)
-  int forwardTarget = FORWARD_SPEED * forwardSpeedFactor;
-  for (int s = minTurnSpeed; s <= forwardTarget; s += 10)
-  {
-    setMotorSpeeds(s, s);
-    delay(25);
-  }
+  long leftMoved = 0, rightMoved = 0;
 
-  // Short forward burst to clear the turning point
-  setMotorSpeeds(forwardTarget, forwardTarget);
-  delay(300); // brief forward movement
+  while (true)
+  {
+    noInterrupts();
+    // leftMoved = abs(encoderCountLeft - startLeft);
+    rightMoved = abs(encoderCountRight - startRight);
+    interrupts();
+
+    // long avgMoved = (leftMoved + rightMoved) / 2;
+    long followupSpeed = FORWARD_SPEED * forwardSpeedFactor;
+    setMotorSpeeds(followupSpeed, followupSpeed);
+
+    // if (avgMoved >= forwardCounts)
+    if (rightMoved >= forwardCounts)
+      break;
+  }
 }
 
 void turnLeft90()
 {
   int speed = TURN_SPEED * turnSpeedFactor;
+
+  // --- Step 1: Perform the right turn ---
   noInterrupts();
   long startLeft = encoderCountLeft, startRight = encoderCountRight;
   interrupts();
 
   setMotorSpeeds(-speed, speed);
+
   while (true)
   {
     noInterrupts();
-    long leftMoved = abs(encoderCountLeft - startLeft);
+    // long leftMoved = abs(encoderCountLeft - startLeft);
     long rightMoved = abs(encoderCountRight - startRight);
     interrupts();
-    if (leftMoved >= countsFor90Deg || rightMoved >= countsFor90Deg)
+
+    // if (leftMoved >= countsFor90Deg || rightMoved >= countsFor90Deg)
+    if (rightMoved >= countsFor90Deg)
       break;
   }
+
   stopMotors();
 
-  // Gradually reduce turning speed instead of stopping abruptly
-  const int minTurnSpeed = 30;
-  for (int s = speed; s > minTurnSpeed; s -= 10)
-  {
-    setMotorSpeeds(-s, s);
-    delay(25);
-  }
+  noInterrupts();
+  // startLeft = encoderCountLeft;
+  startRight = encoderCountRight;
+  interrupts();
 
-  // Ramp into forward motion
-  int forwardTarget = FORWARD_SPEED * forwardSpeedFactor;
-  for (int s = minTurnSpeed; s <= forwardTarget; s += 10)
-  {
-    setMotorSpeeds(s, s);
-    delay(25);
-  }
+  long leftMoved = 0, rightMoved = 0;
 
-  setMotorSpeeds(forwardTarget, forwardTarget);
-  delay(300);
+  while (true)
+  {
+    noInterrupts();
+    // leftMoved = abs(encoderCountLeft - startLeft);
+    rightMoved = abs(encoderCountRight - startRight);
+    interrupts();
+
+    // long avgMoved = (leftMoved + rightMoved) / 2;
+    long followupSpeed = FORWARD_SPEED * forwardSpeedFactor;
+    setMotorSpeeds(followupSpeed, followupSpeed);
+
+    // if (avgMoved >= forwardCounts)
+    if (rightMoved >= forwardCounts)
+      break;
+  }
 }
 
 void turnAround()
@@ -349,10 +367,11 @@ void turnAround()
   while (true)
   {
     noInterrupts();
-    long leftMoved = abs(encoderCountLeft - startLeft);
+    // long leftMoved = abs(encoderCountLeft - startLeft);
     long rightMoved = abs(encoderCountRight - startRight);
     interrupts();
-    if (leftMoved >= countsFor90Deg * 2 || rightMoved >= countsFor90Deg * 2)
+    // if (leftMoved >= countsFor90Deg * 2 && rightMoved >= countsFor90Deg * 2)
+    if (rightMoved >= countsFor90Deg * 2)
       break;
   }
   stopMotors();
@@ -361,7 +380,7 @@ void turnAround()
 void mazeSolverLoop()
 {
   long distFront = getDistance(TRIG_FRONT, ECHO_FRONT);
-  long distLeft = getDistance(TRIG_LEFT, ECHO_LEFT) - 98;
+  long distLeft = getDistance(TRIG_LEFT, ECHO_LEFT) - 97;
   long distRight = getDistance(TRIG_RIGHT, ECHO_RIGHT);
 
   Serial.print("F:");
@@ -382,10 +401,13 @@ void mazeSolverLoop()
 
     while (true)
     {
-      long leftMoved = abs(encoderCountLeft - startLeft);
+      noInterrupts();
+      // long leftMoved = abs(encoderCountLeft - startLeft);
       long rightMoved = abs(encoderCountRight - startRight);
+      interrupts();
 
-      if (leftMoved >= countsForTurnClearance || rightMoved >= countsForTurnClearance)
+      // if (leftMoved >= countsForTurnClearance || rightMoved >= countsForTurnClearance)
+      if (rightMoved >= countsForTurnClearance)
         break;
 
       long frontDist = getDistance(TRIG_FRONT, ECHO_FRONT);
@@ -398,6 +420,7 @@ void mazeSolverLoop()
     }
 
     Serial.println("Left turn available - Following left hand rule...");
+    stopMotors();
     turnLeft90();
   }
   else if (distRight > sideThreshold) // Right gap next priority
@@ -409,10 +432,13 @@ void mazeSolverLoop()
 
     while (true)
     {
-      long leftMoved = abs(encoderCountLeft - startLeft);
+      noInterrupts();
+      // long leftMoved = abs(encoderCountLeft - startLeft);
       long rightMoved = abs(encoderCountRight - startRight);
+      interrupts();
 
-      if (leftMoved >= countsForTurnClearance || rightMoved >= countsForTurnClearance)
+      // if (leftMoved >= countsForTurnClearance || rightMoved >= countsForTurnClearance)
+      if (rightMoved >= countsForTurnClearance)
         break;
 
       long frontDist = getDistance(TRIG_FRONT, ECHO_FRONT);
@@ -425,6 +451,7 @@ void mazeSolverLoop()
     }
 
     Serial.println("Right turn available - Turning RIGHT...");
+    stopMotors();
     turnRight90();
   }
   else if (distFront > frontThreshold) // Front last
@@ -434,6 +461,7 @@ void mazeSolverLoop()
   else
   {
     Serial.println("Dead end - Turning around...");
+    stopMotors();
     turnAround();
   }
 }
@@ -482,26 +510,34 @@ void setup()
 void loop()
 {
   long distFront = getDistance(TRIG_FRONT, ECHO_FRONT);
-  long distLeft = getDistance(TRIG_LEFT, ECHO_LEFT);
+  long distLeft = getDistance(TRIG_LEFT, ECHO_LEFT) - 97;
   long distRight = getDistance(TRIG_RIGHT, ECHO_RIGHT);
 
-  // Auto mode switching
-  if ((distFront > 20 && distLeft > 40 && distRight > 10) ||
-      (distFront > 20 && distRight > 40 && distLeft > 10))
+  // // Auto mode switching
+  // if ((distFront > 20 && distLeft > 40 && distRight > 10) ||
+  //     (distFront > 20 && distRight > 40 && distLeft > 10))
+  // {
+  //   if (currentMode != LINE_FOLLOWER)
+  //   {
+  //     Serial.println("Switching to LINE FOLLOWER mode...");
+  //     currentMode = LINE_FOLLOWER;
+  //   }
+  // }
+  // else
+  // {
+  //   if (currentMode != MAZE_SOLVER)
+  //   {
+  //     Serial.println("Switching to MAZE SOLVER mode...");
+  //     currentMode = MAZE_SOLVER;
+  //   }
+  // }
+  if (distLeft > 60 && distRight > 60)
   {
-    if (currentMode != LINE_FOLLOWER)
-    {
-      Serial.println("Switching to LINE FOLLOWER mode...");
-      currentMode = LINE_FOLLOWER;
-    }
+    currentMode = LINE_FOLLOWER;
   }
-  else
+  else if (distLeft < sideThreshold && distRight < sideThreshold)
   {
-    if (currentMode != MAZE_SOLVER)
-    {
-      Serial.println("Switching to MAZE SOLVER mode...");
-      currentMode = MAZE_SOLVER;
-    }
+    currentMode = MAZE_SOLVER;
   }
 
   if (currentMode == LINE_FOLLOWER)
