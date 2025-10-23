@@ -15,7 +15,7 @@ float Kd = 0.1;
 // ======================= SPEED CONTROLS =======================
 #define FORWARD_SPEED 180
 #define TURN_SPEED 80
-#define LINE_SPEED 180
+#define LINE_SPEED 120
 float forwardSpeedFactor = 0.4;
 float turnSpeedFactor = 0.5;
 float lineSpeedFactor = 0.5;
@@ -170,16 +170,47 @@ void lineFollowerLoop()
   for (int i = 0; i < 8; i++)
   {
     sensors[i] = digitalRead(IR_PINS[i]);
-    if (sensors[i] == 1)
+    if (sensors[i] == 1) // Assuming 1 means "on the line" (black)
     {
       sum += i * 100;
       blackCount++;
     }
   }
 
-  if (blackCount == 0)
+  // --- 90-DEGREE TURN DETECTION ---
+  // A sharp turn is detected if the line is far to one side AND not centered.
+  // Requires 3 or more of the outer 4 sensors to be active on one side.
+  bool extremeRight = (sensors[0] + sensors[1] + sensors[2] + sensors[3] >= 3);
+  bool extremeLeft = (sensors[4] + sensors[5] + sensors[6] + sensors[7] >= 3);
+  bool centerOn = (sensors[3] || sensors[4]);
+
+  if (extremeLeft && !centerOn)
   {
     stopMotors();
+    turnLeft90();
+    // After turn, reset PID state to zero correction
+    integral = 0;
+    lastError = 0;
+    delay(50); 
+    return;
+  }
+
+  if (extremeRight && !centerOn)
+  {
+    stopMotors();
+    turnRight90();
+    // After turn, reset PID state to zero correction
+    integral = 0;
+    lastError = 0;
+    delay(50); 
+    return;
+  }
+
+  // --- LINE LOST (No line/All white) ---
+  if (blackCount == 0)
+  { 
+    stopMotors();
+    turnLeft90();
     integral = 0;
     if (millis() - lastPrintTime >= printInterval)
     {
@@ -190,8 +221,9 @@ void lineFollowerLoop()
     return;
   }
 
+  // --- NORMAL PID LINE FOLLOWING ---
   int position = sum / blackCount;
-  error = position - 350;
+  error = position - 350; // Error is displacement from center (350)
 
   integral += error;
   float derivative = error - lastError;
@@ -210,7 +242,8 @@ void lineFollowerLoop()
 
   setMotorSpeeds(leftSpeed, rightSpeed);
 
-  if (millis() - lastPrintTime >= printInterval)
+  // --- Printing Debug Info ---
+  /*if (millis() - lastPrintTime >= printInterval)
   {
     Serial.print("IR: ");
     for (int i = 0; i < 8; i++)
@@ -230,7 +263,7 @@ void lineFollowerLoop()
     Serial.println(rightSpeed);
     lastPrintTime = millis();
   }
-  delay(10);
+  delay(10);*/
 }
 
 // ======================= MAZE SOLVER LOGIC =======================
