@@ -1,5 +1,8 @@
 #include <Arduino.h>
 
+const int SIZE = 4;
+const int MAX_NODES = 64;
+
 // ======================= IR LINE FOLLOWER CONFIG =======================
 const int IR_PINS[8] = {41, 37, 36, 33, 32, 31, 30, 28};
 const int IR_ENABLE = 40;
@@ -13,7 +16,7 @@ float Kd = 0.1;
 #define FORWARD_SPEED 180
 #define TURN_SPEED 80
 #define LINE_SPEED 180
-float forwardSpeedFactor = 0.5;
+float forwardSpeedFactor = 0.4;
 float turnSpeedFactor = 0.5;
 float lineSpeedFactor = 0.5;
 int lastLeftSpeed = 0;
@@ -50,13 +53,18 @@ volatile long encoderCountRight = 0;
 #define ECHO_RIGHT 47
 
 // ======================= MAZE NAVIGATION CONFIG =======================
-int frontThreshold = 9;
+int frontThreshold = 8;
 int sideThreshold = 15;
-float correctionGain = 2; // Forward Movement Left & Right Adjustment
-long countsFor90Deg = 135;
-const int targetWallDist = 6;
-long countsForTurnClearance = 95;
-const long forwardCounts = 70;
+float correctionGain = 2.0; // Forward Movement Left & Right Adjustment
+long countsFor90Deg = 145;
+int targetWallDist = 6;
+long preTurnClearance = 100;
+long postTurnClearance = 150;
+long oneCellCount = 300;
+int leftSensorCorrection = 97;
+String moveOrder = "";
+int moveCount = 0;
+int moveIteration = 0;
 
 // ======================= LINE FOLLOWING CONFIG =======================
 
@@ -70,7 +78,8 @@ const unsigned long printInterval = 500;
 enum Mode
 {
   LINE_FOLLOWER,
-  MAZE_SOLVER
+  MAZE_SOLVER,
+  STOPPING
 };
 Mode currentMode = MAZE_SOLVER; // Start in maze solver mode
 
@@ -121,7 +130,7 @@ void setMotorSpeeds(int leftSpeed, int rightSpeed)
 
 void stopMotors()
 {
-  int step = 5;
+  int step = 7;
   for (int s = max(lastLeftSpeed, lastRightSpeed); s > 0; s -= step)
   {
     setMotorSpeeds(s, s);
@@ -225,47 +234,92 @@ void lineFollowerLoop()
 }
 
 // ======================= MAZE SOLVER LOGIC =======================
-void moveForward(long distLeft, long distRight)
+void moveForward(int typeRun) // 0 - Normal, 1 - Pre Turn Clearance, 2 - Post Turn Clearance, 3 - One cell
 {
-  int adjLeft = FORWARD_SPEED * forwardSpeedFactor;
-  int adjRight = FORWARD_SPEED * forwardSpeedFactor;
+    long startRight;
+    noInterrupts();
+    startRight = encoderCountRight;
+    interrupts();
 
-  if (distLeft < sideThreshold && distRight < sideThreshold)
-  {
-    long diff = distLeft - distRight;
-    int correction = diff * correctionGain;
-    correction = constrain(correction, -30, 30);
-    adjLeft -= correction;
-    adjRight += correction;
-  }
-  else if (distLeft < sideThreshold && distRight >= sideThreshold)
-  {
-    long error = distLeft - targetWallDist;
-    int correction = error * correctionGain;
-    correction = constrain(correction, -30, 30);
-    adjLeft -= correction;
-    adjRight += correction;
-  }
-  else if (distRight < sideThreshold && distLeft >= sideThreshold)
-  {
-    long error = distRight - targetWallDist;
-    int correction = error * correctionGain;
-    correction = constrain(correction, -30, 30);
-    adjLeft += correction;
-    adjRight -= correction;
-  }
+    int adjLeft, adjRight;
 
-  adjLeft = constrain(adjLeft, 0, 255);
-  adjRight = constrain(adjRight, 0, 255);
-  setMotorSpeeds(adjLeft, adjRight);
+    while (true)
+    {
+        // Update sensor readings every loop
+        long distFront = getDistance(TRIG_FRONT, ECHO_FRONT);
+        long distLeft = getDistance(TRIG_LEFT, ECHO_LEFT) - leftSensorCorrection;
+        long distRight = getDistance(TRIG_RIGHT, ECHO_RIGHT);
+
+        adjLeft = FORWARD_SPEED * forwardSpeedFactor;
+        adjRight = FORWARD_SPEED * forwardSpeedFactor;
+
+        // --- Wall following corrections ---
+        if (distFront < frontThreshold) {
+          break;
+        }
+        else if (distLeft < sideThreshold && distRight < sideThreshold)
+        {
+            long diff = distLeft - distRight;
+            int correction = constrain(diff * correctionGain, -30, 30);
+            adjLeft -= correction;
+            adjRight += correction;
+        }
+        else if (distLeft < sideThreshold && distRight >= sideThreshold)
+        {
+            long error = distLeft - targetWallDist;
+            int correction = constrain(error * correctionGain, -30, 30);
+            adjLeft -= correction;
+            adjRight += correction;
+        }
+        else if (distRight < sideThreshold && distLeft >= sideThreshold)
+        {
+            long error = distRight - targetWallDist;
+            int correction = constrain(error * correctionGain, -30, 30);
+            adjLeft += correction;
+            adjRight -= correction;
+        }
+
+        // Constrain motor values
+        adjLeft = constrain(adjLeft, 0, 255);
+        adjRight = constrain(adjRight, 0, 255);
+
+        // Apply speeds
+        setMotorSpeeds(adjLeft, adjRight);
+
+        // --- Check distance moved ---
+        long rightMoved;
+        noInterrupts();
+        rightMoved = abs(encoderCountRight - startRight);
+        interrupts();
+        if (typeRun == 1){
+          if (rightMoved >= preTurnClearance)
+            break;
+        }  
+        else if (typeRun == 2){
+          if (rightMoved >= postTurnClearance)
+            break;
+        }
+        else if (typeRun == 3){
+          if (rightMoved >= oneCellCount)
+            break;
+        }
+        else
+          break;
+
+        delay(5); // Small delay to avoid extremely fast loop causing overshoot
+    }
 }
 
 void turnRight90()
 {
+  
+  stopMotors();
+  moveForward(1);
   int speed = TURN_SPEED * turnSpeedFactor;
 
   noInterrupts();
-  long startLeft = encoderCountLeft, startRight = encoderCountRight;
+  // long startLeft = encoderCountLeft;
+  long startRight = encoderCountRight;
   interrupts();
 
   setMotorSpeeds(speed, -speed);
@@ -281,39 +335,19 @@ void turnRight90()
     if (rightMoved >= countsFor90Deg)
       break;
   }
-
-  stopMotors();
-
-  noInterrupts();
-  startLeft = encoderCountLeft, startRight = encoderCountRight;
-  interrupts();
-
-  long leftMoved = 0, rightMoved = 0;
-
-  while (true)
-  {
-    noInterrupts();
-    // leftMoved = abs(encoderCountLeft - startLeft);
-    rightMoved = abs(encoderCountRight - startRight);
-    interrupts();
-
-    // long avgMoved = (leftMoved + rightMoved) / 2;
-    long followupSpeed = FORWARD_SPEED * forwardSpeedFactor;
-    setMotorSpeeds(followupSpeed, followupSpeed);
-
-    // if (avgMoved >= forwardCounts)
-    if (rightMoved >= forwardCounts)
-      break;
-  }
+  moveForward(2);
 }
 
 void turnLeft90()
 {
+  stopMotors();
+  moveForward(1);
   int speed = TURN_SPEED * turnSpeedFactor;
 
   // --- Step 1: Perform the right turn ---
   noInterrupts();
-  long startLeft = encoderCountLeft, startRight = encoderCountRight;
+  // long startLeft = encoderCountLeft;
+  long startRight = encoderCountRight;
   interrupts();
 
   setMotorSpeeds(-speed, speed);
@@ -329,38 +363,16 @@ void turnLeft90()
     if (rightMoved >= countsFor90Deg)
       break;
   }
-
-  stopMotors();
-
-  noInterrupts();
-  // startLeft = encoderCountLeft;
-  startRight = encoderCountRight;
-  interrupts();
-
-  long leftMoved = 0, rightMoved = 0;
-
-  while (true)
-  {
-    noInterrupts();
-    // leftMoved = abs(encoderCountLeft - startLeft);
-    rightMoved = abs(encoderCountRight - startRight);
-    interrupts();
-
-    // long avgMoved = (leftMoved + rightMoved) / 2;
-    long followupSpeed = FORWARD_SPEED * forwardSpeedFactor;
-    setMotorSpeeds(followupSpeed, followupSpeed);
-
-    // if (avgMoved >= forwardCounts)
-    if (rightMoved >= forwardCounts)
-      break;
-  }
+  moveForward(2);
 }
 
 void turnAround()
 {
+  stopMotors();
   int speed = TURN_SPEED * turnSpeedFactor;
   noInterrupts();
-  long startLeft = encoderCountLeft, startRight = encoderCountRight;
+  // long startLeft = encoderCountLeft;
+  long startRight = encoderCountRight;
   interrupts();
 
   setMotorSpeeds(-speed, speed);
@@ -377,10 +389,157 @@ void turnAround()
   stopMotors();
 }
 
+//////////////////////////////////////////////////////////////////////////////////////////////////////
+
+struct Node
+{
+  int r, c, dir;
+  float cost;
+  String path;
+  bool used;
+};
+
+Node openList[MAX_NODES];
+int openCount = 0;
+float best[SIZE][SIZE][4];
+
+// Directions: 0=North,1=East,2=South,3=West
+int dr[4] = {-1, 0, 1, 0};
+int dc[4] = {0, 1, 0, -1};
+
+// Wall bits: West(1), North(2), East(4), South(8)
+bool canMove(int maze[SIZE][SIZE], int r, int c, int dir)
+{
+  // Mapping directions (for bit lookups)
+  int dirBits[4] = {2, 4, 8, 1};      // N,E,S,W
+  int oppositeBits[4] = {8, 1, 2, 4}; // opposite of N,E,S,W
+
+  // Check current cell
+  if (maze[r][c] & dirBits[dir])
+    return false;
+
+  int nr = r + dr[dir];
+  int nc = c + dc[dir];
+  if (nr < 0 || nr >= SIZE || nc < 0 || nc >= SIZE)
+    return false;
+
+  // Check target cell's opposite wall
+  if (maze[nr][nc] & oppositeBits[dir])
+    return false;
+
+  return true;
+}
+
+String moveDir(int prev, int next)
+{
+  int diff = (next - prev + 4) % 4;
+  if (diff == 0)
+    return "F";
+  if (diff == 1)
+    return "R";
+  if (diff == 3)
+    return "L";
+  return "U";
+}
+
+int findLowestCost()
+{
+  int bestIdx = -1;
+  float bestCost = 1e9;
+  for (int i = 0; i < openCount; i++)
+  {
+    if (!openList[i].used && openList[i].cost < bestCost)
+    {
+      bestCost = openList[i].cost;
+      bestIdx = i;
+    }
+  }
+  return bestIdx;
+}
+
+void addNode(int r, int c, int dir, float cost, const String &path)
+{
+  if (openCount < MAX_NODES)
+  {
+    openList[openCount] = {r, c, dir, cost, path, false};
+    openCount++;
+  }
+}
+
+void findFastestPath(int maze[SIZE][SIZE],
+                     int startR, int startC,
+                     int endR, int endC,
+                     int initialFacing,
+                     float straight_costs[4],
+                     float turn90, float turn180)
+{
+  for (int r = 0; r < SIZE; r++)
+    for (int c = 0; c < SIZE; c++)
+      for (int d = 0; d < 4; d++)
+        best[r][c][d] = 1e9;
+
+  openCount = 0;
+  addNode(startR, startC, initialFacing, 0.0, "");
+  best[startR][startC][initialFacing] = 0.0;
+
+  while (true)
+  {
+    int idx = findLowestCost();
+    if (idx == -1)
+      break;
+
+    Node current = openList[idx];
+    openList[idx].used = true;
+
+    if (current.r == endR && current.c == endC)
+    {
+      Serial.println("Fastest Path (Robot View):");
+      Serial.println(current.path);
+      Serial.print("Total Cost: ");
+      Serial.println(current.cost, 2);
+      moveOrder = current.path;
+      moveCount = moveOrder.length();
+      return;
+    }
+
+    for (int ndir = 0; ndir < 4; ndir++)
+    {
+      if (!canMove(maze, current.r, current.c, ndir))
+        continue;
+
+      int nr = current.r + dr[ndir];
+      int nc = current.c + dc[ndir];
+      float newCost = current.cost + straight_costs[ndir];
+
+      int diff = abs(current.dir - ndir);
+      if (diff == 2)
+        newCost += turn180;
+      else if (diff == 1 || diff == 3)
+        newCost += turn90;
+
+      if (newCost < best[nr][nc][ndir])
+      {
+        best[nr][nc][ndir] = newCost;
+        String move = moveDir(current.dir, ndir);
+        String newPath = current.path;
+        newPath += move;
+        addNode(nr, nc, ndir, newCost, newPath);
+      }
+    }
+  }
+  Serial.println("No path found!");
+}
+
+void stopping()
+{
+  stopMotors();
+}
+
+///////////////////////////////////////////////////////////////////////////////////////////////////
 void mazeSolverLoop()
 {
   long distFront = getDistance(TRIG_FRONT, ECHO_FRONT);
-  long distLeft = getDistance(TRIG_LEFT, ECHO_LEFT) - 97;
+  long distLeft = getDistance(TRIG_LEFT, ECHO_LEFT) - leftSensorCorrection;
   long distRight = getDistance(TRIG_RIGHT, ECHO_RIGHT);
 
   Serial.print("F:");
@@ -390,79 +549,69 @@ void mazeSolverLoop()
   Serial.print(" R:");
   Serial.println(distRight);
 
-  // Left Hand Rule Implementation (Modified priority: Left > Right > Front)
-
-  if (distLeft > sideThreshold) // Left turn available
+  if (moveCount == 0)
   {
-    Serial.println("Moving forward to clear wall before left turn...");
-    noInterrupts();
-    long startLeft = encoderCountLeft, startRight = encoderCountRight;
-    interrupts();
-
-    while (true)
-    {
-      noInterrupts();
-      // long leftMoved = abs(encoderCountLeft - startLeft);
-      long rightMoved = abs(encoderCountRight - startRight);
-      interrupts();
-
-      // if (leftMoved >= countsForTurnClearance || rightMoved >= countsForTurnClearance)
-      if (rightMoved >= countsForTurnClearance)
-        break;
-
-      long frontDist = getDistance(TRIG_FRONT, ECHO_FRONT);
-      if (frontDist < frontThreshold)
-        break;
-
-      long currLeft = getDistance(TRIG_LEFT, ECHO_LEFT);
-      long currRight = getDistance(TRIG_RIGHT, ECHO_RIGHT);
-      moveForward(currLeft, currRight);
-    }
-
-    Serial.println("Left turn available - Following left hand rule...");
-    stopMotors();
-    turnLeft90();
+    currentMode = STOPPING;
+    Serial.println("Stopping 4");
+    return;
   }
-  else if (distRight > sideThreshold) // Right gap next priority
+  if (moveCount <= moveIteration)
   {
-    Serial.println("Moving forward to clear wall before right turn...");
-    noInterrupts();
-    long startLeft = encoderCountLeft, startRight = encoderCountRight;
-    interrupts();
-
-    while (true)
-    {
-      noInterrupts();
-      // long leftMoved = abs(encoderCountLeft - startLeft);
-      long rightMoved = abs(encoderCountRight - startRight);
-      interrupts();
-
-      // if (leftMoved >= countsForTurnClearance || rightMoved >= countsForTurnClearance)
-      if (rightMoved >= countsForTurnClearance)
-        break;
-
-      long frontDist = getDistance(TRIG_FRONT, ECHO_FRONT);
-      if (frontDist < frontThreshold)
-        break;
-
-      long currLeft = getDistance(TRIG_LEFT, ECHO_LEFT);
-      long currRight = getDistance(TRIG_RIGHT, ECHO_RIGHT);
-      moveForward(currLeft, currRight);
-    }
-
-    Serial.println("Right turn available - Turning RIGHT...");
-    stopMotors();
-    turnRight90();
+    // currentMode = LINE_FOLLOWER;
+    currentMode = STOPPING;
+    return;
   }
-  else if (distFront > frontThreshold) // Front last
+
+  // if (distLeft >= sideThreshold || distRight >= sideThreshold || distFront <= frontThreshold)
+  if (true)
   {
-    moveForward(distLeft, distRight);
+    char move = moveOrder[moveIteration];
+    if (move == 'F')
+    {
+      if (distFront > frontThreshold){
+        Serial.println("Moving Forward by 1 Cell");
+        moveForward(3);
+      }
+      else
+      {
+        Serial.println("Stopping 1");
+        currentMode = STOPPING;
+      }
+    }
+    else if (move == 'L')
+    {
+      if (distLeft > sideThreshold){
+        Serial.println("Turning Left");
+        turnLeft90();
+      }
+      else
+      {
+        Serial.println("Stopping 2");
+        currentMode = STOPPING;
+      }
+    }
+    else if (move == 'R')
+    {
+      if (distRight > sideThreshold){
+        Serial.println("Turning Right");
+        turnRight90();
+      }
+      else
+      {
+        Serial.println("Stopping 3");
+        currentMode = STOPPING;
+      }
+    }
+    else
+    {
+      Serial.println("Turning Around");
+      turnAround();
+    }
+    moveIteration++;
   }
   else
   {
-    Serial.println("Dead end - Turning around...");
-    stopMotors();
-    turnAround();
+    moveForward(0);
   }
 }
 
@@ -504,44 +653,37 @@ void setup()
   pinMode(ECHO_RIGHT, INPUT);
 
   Serial.println("Robot Ready — Default Mode: Maze Solver");
+
+  ////////////////////////////////////////////////////////////////////////////////////////////
+  int maze[4][4] = {
+      {0x5, 0x3, 0xA, 0x6},
+      {0x9, 0x4, 0xB, 0x4},
+      {0x3, 0x4, 0x7, 0x5},
+      {0xD, 0x9, 0x8, 0xC}}; // West = 1, North = 2, East = 4, South = 8
+
+  float straight_costs[4] = {0.0, 1.2, 2.1, 3.0};
+  findFastestPath(maze, 3, 0, 0, 0, 0, straight_costs, 0.6, 1.1); // Directions: 0=North,1=East,2=South,3=West
 }
 
 // ======================= MAIN LOOP =======================
 void loop()
 {
-  long distFront = getDistance(TRIG_FRONT, ECHO_FRONT);
-  long distLeft = getDistance(TRIG_LEFT, ECHO_LEFT) - 97;
-  long distRight = getDistance(TRIG_RIGHT, ECHO_RIGHT);
+  // long distLeft = getDistance(TRIG_LEFT, ECHO_LEFT) - leftSensorCorrection;
+  // long distRight = getDistance(TRIG_RIGHT, ECHO_RIGHT);
 
-  // // Auto mode switching
-  // if ((distFront > 20 && distLeft > 40 && distRight > 10) ||
-  //     (distFront > 20 && distRight > 40 && distLeft > 10))
+  // if (distLeft > 60 && distRight > 60 && MAZE_SOLVER)
   // {
-  //   if (currentMode != LINE_FOLLOWER)
-  //   {
-  //     Serial.println("Switching to LINE FOLLOWER mode...");
-  //     currentMode = LINE_FOLLOWER;
-  //   }
+  //   currentMode = LINE_FOLLOWER;
   // }
-  // else
+  // else if (distLeft < sideThreshold && distRight < sideThreshold && currentMode == LINE_FOLLOWER)
   // {
-  //   if (currentMode != MAZE_SOLVER)
-  //   {
-  //     Serial.println("Switching to MAZE SOLVER mode...");
-  //     currentMode = MAZE_SOLVER;
-  //   }
+  //   currentMode = MAZE_SOLVER;
   // }
-  if (distLeft > 60 && distRight > 60)
-  {
-    currentMode = LINE_FOLLOWER;
-  }
-  else if (distLeft < sideThreshold && distRight < sideThreshold)
-  {
-    currentMode = MAZE_SOLVER;
-  }
 
   if (currentMode == LINE_FOLLOWER)
     lineFollowerLoop();
-  else
+  else if (currentMode == MAZE_SOLVER)
     mazeSolverLoop();
+  else if (currentMode == STOPPING)
+    stopping();
 }
