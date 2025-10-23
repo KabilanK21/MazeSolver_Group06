@@ -161,111 +161,6 @@ long getDistance(int trigPin, int echoPin)
   return sum / N;
 }
 
-// ======================= LINE FOLLOWING LOGIC =======================
-void lineFollowerLoop()
-{
-  int sensors[8];
-  int sum = 0, blackCount = 0;
-
-  for (int i = 0; i < 8; i++)
-  {
-    sensors[i] = digitalRead(IR_PINS[i]);
-    if (sensors[i] == 1) // Assuming 1 means "on the line" (black)
-    {
-      sum += i * 100;
-      blackCount++;
-    }
-  }
-
-  // --- 90-DEGREE TURN DETECTION ---
-  // A sharp turn is detected if the line is far to one side AND not centered.
-  // Requires 3 or more of the outer 4 sensors to be active on one side.
-  bool extremeRight = (sensors[0] + sensors[1] + sensors[2] + sensors[3] >= 3);
-  bool extremeLeft = (sensors[4] + sensors[5] + sensors[6] + sensors[7] >= 3);
-  bool centerOn = (sensors[3] || sensors[4]);
-
-  if (extremeLeft && !centerOn)
-  {
-    stopMotors();
-    turnLeft90();
-    // After turn, reset PID state to zero correction
-    integral = 0;
-    lastError = 0;
-    delay(50); 
-    return;
-  }
-
-  if (extremeRight && !centerOn)
-  {
-    stopMotors();
-    turnRight90();
-    // After turn, reset PID state to zero correction
-    integral = 0;
-    lastError = 0;
-    delay(50); 
-    return;
-  }
-
-  // --- LINE LOST (No line/All white) ---
-  if (blackCount == 0)
-  { 
-    stopMotors();
-    turnLeft90();
-    integral = 0;
-    if (millis() - lastPrintTime >= printInterval)
-    {
-      Serial.println("Line Lost — Motors Stopped");
-      lastPrintTime = millis();
-    }
-    delay(10);
-    return;
-  }
-
-  // --- NORMAL PID LINE FOLLOWING ---
-  int position = sum / blackCount;
-  error = position - 350; // Error is displacement from center (350)
-
-  integral += error;
-  float derivative = error - lastError;
-  float correction = (Kp * error + Ki * integral + Kd * derivative) * TURN_GAIN;
-
-  lastError = error;
-
-  int leftSpeed = LINE_SPEED - correction;
-  int rightSpeed = LINE_SPEED + correction;
-
-  leftSpeed *= lineSpeedFactor;
-  rightSpeed *= lineSpeedFactor;
-
-  leftSpeed = constrain(leftSpeed, 0, 255);
-  rightSpeed = constrain(rightSpeed, 0, 255);
-
-  setMotorSpeeds(leftSpeed, rightSpeed);
-
-  // --- Printing Debug Info ---
-  /*if (millis() - lastPrintTime >= printInterval)
-  {
-    Serial.print("IR: ");
-    for (int i = 0; i < 8; i++)
-    {
-      Serial.print(sensors[i]);
-      Serial.print(" ");
-    }
-    Serial.print(" | Pos: ");
-    Serial.print(position);
-    Serial.print(" | Err: ");
-    Serial.print(error);
-    Serial.print(" | Corr: ");
-    Serial.print(correction);
-    Serial.print(" | L: ");
-    Serial.print(leftSpeed);
-    Serial.print(" | R: ");
-    Serial.println(rightSpeed);
-    lastPrintTime = millis();
-  }
-  delay(10);*/
-}
-
 // ======================= MAZE SOLVER LOGIC =======================
 void moveForward(int typeRun) // 0 - Normal, 1 - Pre Turn Clearance, 2 - Post Turn Clearance, 3 - One cell
 {
@@ -420,6 +315,111 @@ void turnAround()
       break;
   }
   stopMotors();
+}
+
+// ======================= LINE FOLLOWING LOGIC =======================
+void lineFollowerLoop()
+{
+  int sensors[8];
+  int sum = 0, blackCount = 0;
+
+  for (int i = 0; i < 8; i++)
+  {
+    sensors[i] = digitalRead(IR_PINS[i]);
+    if (sensors[i] == 1) // Assuming 1 means "on the line" (black)
+    {
+      sum += i * 100;
+      blackCount++;
+    }
+  }
+
+  // --- 90-DEGREE TURN DETECTION ---
+  // A sharp turn is detected if the line is far to one side AND not centered.
+  // Requires 3 or more of the outer 4 sensors to be active on one side.
+  bool extremeRight = (sensors[0] + sensors[1] + sensors[2] + sensors[3] >= 3);
+  bool extremeLeft = (sensors[4] + sensors[5] + sensors[6] + sensors[7] >= 3);
+  bool centerOn = (sensors[3] || sensors[4]);
+
+  if (extremeLeft && !centerOn)
+  {
+    stopMotors();
+    turnLeft90();
+    // After turn, reset PID state to zero correction
+    integral = 0;
+    lastError = 0;
+    delay(50); 
+    return;
+  }
+
+  if (extremeRight && !centerOn)
+  {
+    stopMotors();
+    turnRight90();
+    // After turn, reset PID state to zero correction
+    integral = 0;
+    lastError = 0;
+    delay(50); 
+    return;
+  }
+
+  // --- LINE LOST (No line/All white) ---
+  if (blackCount == 0)
+  { 
+    stopMotors();
+    turnLeft90();
+    integral = 0;
+    if (millis() - lastPrintTime >= printInterval)
+    {
+      Serial.println("Line Lost — Motors Stopped");
+      lastPrintTime = millis();
+    }
+    delay(10);
+    return;
+  }
+
+  // --- NORMAL PID LINE FOLLOWING ---
+  int position = sum / blackCount;
+  error = position - 350; // Error is displacement from center (350)
+
+  integral += error;
+  float derivative = error - lastError;
+  float correction = (Kp * error + Ki * integral + Kd * derivative) * TURN_GAIN;
+
+  lastError = error;
+
+  int leftSpeed = LINE_SPEED - correction;
+  int rightSpeed = LINE_SPEED + correction;
+
+  leftSpeed *= lineSpeedFactor;
+  rightSpeed *= lineSpeedFactor;
+
+  leftSpeed = constrain(leftSpeed, 0, 255);
+  rightSpeed = constrain(rightSpeed, 0, 255);
+
+  setMotorSpeeds(leftSpeed, rightSpeed);
+
+  // --- Printing Debug Info ---
+  /*if (millis() - lastPrintTime >= printInterval)
+  {
+    Serial.print("IR: ");
+    for (int i = 0; i < 8; i++)
+    {
+      Serial.print(sensors[i]);
+      Serial.print(" ");
+    }
+    Serial.print(" | Pos: ");
+    Serial.print(position);
+    Serial.print(" | Err: ");
+    Serial.print(error);
+    Serial.print(" | Corr: ");
+    Serial.print(correction);
+    Serial.print(" | L: ");
+    Serial.print(leftSpeed);
+    Serial.print(" | R: ");
+    Serial.println(rightSpeed);
+    lastPrintTime = millis();
+  }
+  delay(10);*/
 }
 
 //////////////////////////////////////////////////////////////////////////////////////////////////////
