@@ -536,7 +536,7 @@ void lineFollowerLoop()
   setMotorSpeeds(leftSpeed, rightSpeed);
 
   // --- Printing Debug Info ---
-  /*if (millis() - lastPrintTime >= printInterval)
+  if (millis() - lastPrintTime >= printInterval)
   {
     Serial.print("IR: ");
     for (int i = 0; i < 8; i++)
@@ -556,7 +556,7 @@ void lineFollowerLoop()
     Serial.println(rightSpeed);
     lastPrintTime = millis();
   }
-  delay(10);*/
+  delay(10);
 }
 
 void mazeSolverLoop()
@@ -605,11 +605,18 @@ void mazeSolverLoop()
   {
     if (distLeft > sideThreshold)
     {
-      Serial.println("Turning Left");
-      moveForward(1);
-      stopMotors();
-      turnLeft90();
-      moveForward(2);
+      if (moveIteration == 0)
+      {
+        turnLeft90();
+      }
+      else
+      {
+        Serial.println("Turning Left");
+        moveForward(1);
+        stopMotors();
+        turnLeft90();
+        moveForward(2);
+      }
       moveIteration++;
     }
     else
@@ -621,11 +628,18 @@ void mazeSolverLoop()
   {
     if (distRight > sideThreshold)
     {
-      Serial.println("Turning Right");
-      moveForward(1);
-      stopMotors();
-      turnRight90();
-      moveForward(2);
+      if (moveIteration == 0)
+      {
+        turnLeft90();
+      }
+      else
+      {
+        Serial.println("Turning Right");
+        moveForward(1);
+        stopMotors();
+        turnRight90();
+        moveForward(2);
+      }
       moveIteration++;
     }
     else
