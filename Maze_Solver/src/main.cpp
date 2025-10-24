@@ -8,17 +8,17 @@ const int IR_PINS[8] = {41, 37, 36, 33, 32, 31, 30, 28};
 const int IR_ENABLE = 40;
 
 // PID constants
-float Kp = 0.3;
+float Kp = 0.27;
 float Ki = 0.0;
 float Kd = 0.13;
 
 // ======================= SPEED CONTROLS =======================
-#define FORWARD_SPEED 180
+#define FORWARD_SPEED 120
 #define TURN_SPEED 120
 #define LINE_SPEED 120
-float forwardSpeedFactor = 0.4;
+float forwardSpeedFactor = 0.6;
 float turnSpeedFactor = 0.4;
-float lineSpeedFactor = 0.5;
+float lineSpeedFactor = 0.7;
 int lastLeftSpeed = 0;
 int lastRightSpeed = 0;
 
@@ -45,23 +45,23 @@ volatile long encoderCountLeft = 0;
 volatile long encoderCountRight = 0;
 
 // ======================= ULTRASONIC CONFIG =======================
-#define TRIG_FRONT 44
-#define ECHO_FRONT 45
+#define TRIG_FRONT 48
+#define ECHO_FRONT 49
 #define TRIG_LEFT 42
 #define ECHO_LEFT 43
 #define TRIG_RIGHT 46
 #define ECHO_RIGHT 47
 
 // ======================= MAZE NAVIGATION CONFIG =======================
-int frontThreshold = 10;
+int frontThreshold = 11;
 int sideThreshold = 15;
-float correctionGain = 2.0; // Forward Movement Left & Right Adjustment
-long countsFor90Deg = 135;
+float correctionGain = 2.5; // Forward Movement Left & Right Adjustment
+long countsFor90Deg = 130;
 int targetWallDist = 6;
-long preTurnClearance = 100;
+long preTurnClearance = 110;
 long postTurnClearance = 120;
 long oneCellCount = 300;
-int leftSensorCorrection = 97;
+int sensorCorrection = 97;
 String moveOrder = "";
 int moveCount = 0;
 int moveIteration = 0;
@@ -141,6 +141,18 @@ void stopMotors()
 
 void stopMotorsSudden()
 {
+  int step = 12;
+  for (int s = max(lastLeftSpeed, lastRightSpeed); s > 0; s -= step)
+  {
+    setMotorSpeeds(s, s);
+    delay(20);
+  }
+
+  // Step 2: Small reverse pulse to brake
+  int reverseSpeed = -50;
+  setMotorSpeeds(reverseSpeed, reverseSpeed);
+  delay(400);
+
   setMotorSpeeds(0, 0);
 }
 
@@ -169,9 +181,9 @@ long getDistance(int trigPin, int echoPin)
 // ======================= MAZE SOLVER LOGIC =======================
 void moveForward(int typeRun) // 0 - Normal, 1 - Pre Turn Clearance, 2 - Post Turn Clearance, 3 - One cell
 {
-  long startRight;
   noInterrupts();
-  startRight = encoderCountRight;
+  long startRight = encoderCountRight;
+  long startLeft = encoderCountLeft;
   interrupts();
 
   int adjLeft, adjRight;
@@ -179,8 +191,8 @@ void moveForward(int typeRun) // 0 - Normal, 1 - Pre Turn Clearance, 2 - Post Tu
   while (true)
   {
     // Update sensor readings every loop
-    long distFront = getDistance(TRIG_FRONT, ECHO_FRONT);
-    long distLeft = getDistance(TRIG_LEFT, ECHO_LEFT) - leftSensorCorrection;
+    long distFront = getDistance(TRIG_FRONT, ECHO_FRONT) - sensorCorrection;
+    long distLeft = getDistance(TRIG_LEFT, ECHO_LEFT) - sensorCorrection;
     long distRight = getDistance(TRIG_RIGHT, ECHO_RIGHT);
 
     adjLeft = FORWARD_SPEED * forwardSpeedFactor;
@@ -222,23 +234,23 @@ void moveForward(int typeRun) // 0 - Normal, 1 - Pre Turn Clearance, 2 - Post Tu
     setMotorSpeeds(adjLeft, adjRight);
 
     // --- Check distance moved ---
-    long rightMoved;
     noInterrupts();
-    rightMoved = abs(encoderCountRight - startRight);
+    long rightMoved = abs(encoderCountRight - startRight);
+    long leftMoved = abs(encoderCountLeft - startLeft);
     interrupts();
     if (typeRun == 1)
     {
-      if (rightMoved >= preTurnClearance)
+      if ((rightMoved + leftMoved) / 2 >= preTurnClearance)
         break;
     }
     else if (typeRun == 2)
     {
-      if (rightMoved >= postTurnClearance)
+      if ((rightMoved + leftMoved) / 2 >= postTurnClearance)
         break;
     }
     else if (typeRun == 3)
     {
-      if (rightMoved >= oneCellCount)
+      if ((rightMoved + leftMoved) / 2 >= oneCellCount)
         break;
     }
     else
@@ -253,7 +265,7 @@ void turnRight90()
   int speed = TURN_SPEED * turnSpeedFactor;
 
   noInterrupts();
-  // long startLeft = encoderCountLeft;
+  long startLeft = encoderCountLeft;
   long startRight = encoderCountRight;
   interrupts();
 
@@ -262,12 +274,11 @@ void turnRight90()
   while (true)
   {
     noInterrupts();
-    // long leftMoved = abs(encoderCountLeft - startLeft);
+    long leftMoved = abs(encoderCountLeft - startLeft);
     long rightMoved = abs(encoderCountRight - startRight);
     interrupts();
 
-    // if (leftMoved >= countsFor90Deg || rightMoved >= countsFor90Deg)
-    if (rightMoved >= countsFor90Deg)
+    if (leftMoved + rightMoved >= countsFor90Deg * 2)
       break;
   }
 }
@@ -278,7 +289,7 @@ void turnLeft90()
 
   // --- Step 1: Perform the right turn ---
   noInterrupts();
-  // long startLeft = encoderCountLeft;
+  long startLeft = encoderCountLeft;
   long startRight = encoderCountRight;
   interrupts();
 
@@ -287,12 +298,11 @@ void turnLeft90()
   while (true)
   {
     noInterrupts();
-    // long leftMoved = abs(encoderCountLeft - startLeft);
+    long leftMoved = abs(encoderCountLeft - startLeft);
     long rightMoved = abs(encoderCountRight - startRight);
     interrupts();
 
-    // if (leftMoved >= countsFor90Deg || rightMoved >= countsFor90Deg)
-    if (rightMoved >= countsFor90Deg)
+    if (leftMoved + rightMoved >= countsFor90Deg * 2)
       break;
   }
 }
@@ -302,7 +312,7 @@ void turnAround()
   stopMotors();
   int speed = TURN_SPEED * turnSpeedFactor;
   noInterrupts();
-  // long startLeft = encoderCountLeft;
+  long startLeft = encoderCountLeft;
   long startRight = encoderCountRight;
   interrupts();
 
@@ -310,11 +320,10 @@ void turnAround()
   while (true)
   {
     noInterrupts();
-    // long leftMoved = abs(encoderCountLeft - startLeft);
+    long leftMoved = abs(encoderCountLeft - startLeft);
     long rightMoved = abs(encoderCountRight - startRight);
     interrupts();
-    // if (leftMoved >= countsFor90Deg * 2 && rightMoved >= countsFor90Deg * 2)
-    if (rightMoved >= countsFor90Deg * 2)
+    if (leftMoved + rightMoved >= countsFor90Deg * 4)
       break;
   }
 }
@@ -483,44 +492,22 @@ void lineFollowerLoop()
     }
   }
 
-  // --- 90-DEGREE TURN DETECTION ---
-  // A sharp turn is detected if the line is far to one side AND not centered.
-  // Requires 3 or more of the outer 4 sensors to be active on one side.
-  bool extremeRight = (sensors[0] + sensors[1] + sensors[2] + sensors[3] >= 3);
-  bool extremeLeft = (sensors[4] + sensors[5] + sensors[6] + sensors[7] >= 3);
-  bool centerOn = (sensors[3] || sensors[4]);
-
-  if (extremeLeft && !centerOn)
-  {
-    stopMotors();
-    turnLeft90();
-    // After turn, reset PID state to zero correction
-    integral = 0;
-    lastError = 0;
-    delay(50);
-    return;
-  }
-
-  if (extremeRight && !centerOn)
-  {
-    stopMotors();
-    turnRight90();
-    // After turn, reset PID state to zero correction
-    integral = 0;
-    lastError = 0;
-    delay(50);
-    return;
-  }
-
   // --- LINE LOST (No line/All white) ---
   if (blackCount == 0)
   {
     stopMotorsSudden();
-    turnLeft90();
+    if (sensors[0] == 1)
+    {
+      turnRight90();
+    }
+    else
+    {
+      turnLeft90();
+    }
     integral = 0;
     if (millis() - lastPrintTime >= printInterval)
     {
-      Serial.println("Line Lost — Motors Stopped");
+      Serial.println("L turn Detected");
       lastPrintTime = millis();
     }
     delay(10);
@@ -574,8 +561,8 @@ void lineFollowerLoop()
 
 void mazeSolverLoop()
 {
-  long distFront = getDistance(TRIG_FRONT, ECHO_FRONT);
-  long distLeft = getDistance(TRIG_LEFT, ECHO_LEFT) - leftSensorCorrection;
+  long distFront = getDistance(TRIG_FRONT, ECHO_FRONT) - sensorCorrection;
+  long distLeft = getDistance(TRIG_LEFT, ECHO_LEFT) - sensorCorrection;
   long distRight = getDistance(TRIG_RIGHT, ECHO_RIGHT);
 
   Serial.print("F:");
@@ -593,70 +580,71 @@ void mazeSolverLoop()
   }
   if (moveCount <= moveIteration)
   {
-    currentMode = LINE_FOLLOWER;
-    // currentMode = STOPPING;
+    moveForward(0); // Moving foward
+    // currentMode = LINE_FOLLOWER;
+    //  currentMode = STOPPING;
     return;
   }
 
-  // if (distLeft >= sideThreshold || distRight >= sideThreshold || distFront <= frontThreshold)
-  if (true)
+  char move = moveOrder[moveIteration];
+  if (move == 'F')
   {
-    char move = moveOrder[moveIteration];
-    if (move == 'F')
+    if (distFront > frontThreshold)
     {
-      if (distFront > frontThreshold)
-      {
-        Serial.println("Moving Forward by 1 Cell");
-        moveForward(3);
-      }
-      else
-      {
-        Serial.println("Stopping 1");
-        currentMode = STOPPING;
-      }
-    }
-    else if (move == 'L')
-    {
-      if (distLeft > sideThreshold)
-      {
-        Serial.println("Turning Left");
-        moveForward(1);
-        stopMotors();
-        turnLeft90();
-        moveForward(2);
-      }
-      else
-      {
-        Serial.println("Stopping 2");
-        currentMode = STOPPING;
-      }
-    }
-    else if (move == 'R')
-    {
-      if (distRight > sideThreshold)
-      {
-        Serial.println("Turning Right");
-        moveForward(1);
-        stopMotors();
-        turnRight90();
-        moveForward(2);
-      }
-      else
-      {
-        Serial.println("Stopping 3");
-        currentMode = STOPPING;
-      }
+      Serial.println("Moving Forward by 1 Cell");
+      moveForward(3);
+      moveIteration++;
     }
     else
     {
-      Serial.println("Turning Around");
-      turnAround();
+      Serial.println("Stopping 1");
+      currentMode = STOPPING;
     }
-    moveIteration++;
+  }
+  else if (move == 'L')
+  {
+    if (distLeft > sideThreshold)
+    {
+      Serial.println("Turning Left");
+      moveForward(1);
+      stopMotors();
+      turnLeft90();
+      moveForward(2);
+      moveIteration++;
+    }
+    else
+    {
+      moveForward(0);
+    }
+  }
+  else if (move == 'R')
+  {
+    if (distRight > sideThreshold)
+    {
+      Serial.println("Turning Right");
+      moveForward(1);
+      stopMotors();
+      turnRight90();
+      moveForward(2);
+      moveIteration++;
+    }
+    else
+    {
+      moveForward(0);
+    }
   }
   else
   {
-    moveForward(0);
+    if (distFront > frontThreshold)
+    {
+      Serial.println("Turning Around");
+      turnAround();
+      moveIteration++;
+    }
+    else
+    {
+      moveForward(0);
+    }
   }
 }
 
@@ -707,20 +695,21 @@ void setup()
       {0xD, 0x9, 0x8, 0xC}}; // West = 1, North = 2, East = 4, South = 8
 
   float straight_costs[4] = {0.0, 1.2, 2.1, 3.0};
-  findFastestPath(maze, 2, 2, 0, 0, 2, straight_costs, 0.6, 1.1); // Directions: 0=North,1=East,2=South,3=West
+  findFastestPath(maze, 3, 0, 0, 0, 0, straight_costs, 0.6, 1.1); // Directions: 0=North,1=East,2=South,3=West
 }
 
 // ======================= MAIN LOOP =======================
 void loop()
 {
-  long distLeft = getDistance(TRIG_LEFT, ECHO_LEFT) - leftSensorCorrection;
+  long distLeft = getDistance(TRIG_LEFT, ECHO_LEFT) - sensorCorrection;
   long distRight = getDistance(TRIG_RIGHT, ECHO_RIGHT);
 
-  if (distLeft > 60 && distRight > 60 && MAZE_SOLVER)
+  if (distLeft > 60 && distRight > 60 && currentMode == MAZE_SOLVER)
   {
     currentMode = LINE_FOLLOWER;
+    Serial.println("Line Followowing Started");
   }
-  else if (distLeft < sideThreshold && distRight < sideThreshold && currentMode == LINE_FOLLOWER)
+  else if (distLeft < sideThreshold && distRight < sideThreshold && (currentMode == LINE_FOLLOWER || currentMode == STOPPING))
   {
     currentMode = MAZE_SOLVER;
   }
