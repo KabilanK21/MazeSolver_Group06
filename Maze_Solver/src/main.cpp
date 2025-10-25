@@ -1,8 +1,5 @@
 #include <Arduino.h>
 
-const int SIZE = 4;
-const int MAX_NODES = 64;
-
 // ======================= IR LINE FOLLOWER CONFIG =======================
 const int IR_PINS[8] = {41, 37, 36, 33, 32, 31, 30, 28};
 const int IR_ENABLE = 40;
@@ -73,6 +70,24 @@ float TURN_GAIN = 1.6;
 // ======================= PRINT CONTROL =======================
 unsigned long lastPrintTime = 0;
 const unsigned long printInterval = 500;
+
+// ======================= MAZE DATA =======================
+
+#define MAX_ROWS 9
+#define MAX_COLS 9
+
+// Directions: E, N, W, S
+const int DX[4] = {0, -1, 0, 1};
+const int DY[4] = {1, 0, -1, 0};
+const int DIRS[4] = {4, 2, 1, 8}; // bitmask walls
+
+// Movement costs
+const float costF1 = 1.2;
+const float costF2 = 2.1;
+const float costF3 = 3.0;
+const float costF4 = 4.0;
+const float costTurn90 = 0.6;
+const float costTurn180 = 1.1;
 
 // ======================= MODE CONTROL =======================
 enum Mode
@@ -328,151 +343,235 @@ void turnAround()
   }
 }
 
-//////////////////////////////////////////////////////////////////////////////////////////////////////
-
-struct Node
-{
-  int r, c, dir;
-  float cost;
-  String path;
-  bool used;
-};
-
-Node openList[MAX_NODES];
-int openCount = 0;
-float best[SIZE][SIZE][4];
-
-// Directions: 0=North,1=East,2=South,3=West
-int dr[4] = {-1, 0, 1, 0};
-int dc[4] = {0, 1, 0, -1};
-
-// Wall bits: West(1), North(2), East(4), South(8)
-bool canMove(int maze[SIZE][SIZE], int r, int c, int dir)
-{
-  // Mapping directions (for bit lookups)
-  int dirBits[4] = {2, 4, 8, 1};      // N,E,S,W
-  int oppositeBits[4] = {8, 1, 2, 4}; // opposite of N,E,S,W
-
-  // Check current cell
-  if (maze[r][c] & dirBits[dir])
-    return false;
-
-  int nr = r + dr[dir];
-  int nc = c + dc[dir];
-  if (nr < 0 || nr >= SIZE || nc < 0 || nc >= SIZE)
-    return false;
-
-  // Check target cell's opposite wall
-  if (maze[nr][nc] & oppositeBits[dir])
-    return false;
-
-  return true;
-}
-
-String moveDir(int prev, int next)
-{
-  int diff = (next - prev + 4) % 4;
-  if (diff == 0)
-    return "F";
-  if (diff == 1)
-    return "R";
-  if (diff == 3)
-    return "L";
-  return "U";
-}
-
-int findLowestCost()
-{
-  int bestIdx = -1;
-  float bestCost = 1e9;
-  for (int i = 0; i < openCount; i++)
-  {
-    if (!openList[i].used && openList[i].cost < bestCost)
-    {
-      bestCost = openList[i].cost;
-      bestIdx = i;
-    }
-  }
-  return bestIdx;
-}
-
-void addNode(int r, int c, int dir, float cost, const String &path)
-{
-  if (openCount < MAX_NODES)
-  {
-    openList[openCount] = {r, c, dir, cost, path, false};
-    openCount++;
-  }
-}
-
-void findFastestPath(int maze[SIZE][SIZE],
-                     int startR, int startC,
-                     int endR, int endC,
-                     int initialFacing,
-                     float straight_costs[4],
-                     float turn90, float turn180)
-{
-  for (int r = 0; r < SIZE; r++)
-    for (int c = 0; c < SIZE; c++)
-      for (int d = 0; d < 4; d++)
-        best[r][c][d] = 1e9;
-
-  openCount = 0;
-  addNode(startR, startC, initialFacing, 0.0, "");
-  best[startR][startC][initialFacing] = 0.0;
-
-  while (true)
-  {
-    int idx = findLowestCost();
-    if (idx == -1)
-      break;
-
-    Node current = openList[idx];
-    openList[idx].used = true;
-
-    if (current.r == endR && current.c == endC)
-    {
-      Serial.println("Fastest Path (Robot View):");
-      Serial.println(current.path);
-      Serial.print("Total Cost: ");
-      Serial.println(current.cost, 2);
-      moveOrder = current.path;
-      moveCount = moveOrder.length();
-      return;
-    }
-
-    for (int ndir = 0; ndir < 4; ndir++)
-    {
-      if (!canMove(maze, current.r, current.c, ndir))
-        continue;
-
-      int nr = current.r + dr[ndir];
-      int nc = current.c + dc[ndir];
-      float newCost = current.cost + straight_costs[ndir];
-
-      int diff = abs(current.dir - ndir);
-      if (diff == 2)
-        newCost += turn180;
-      else if (diff == 1 || diff == 3)
-        newCost += turn90;
-
-      if (newCost < best[nr][nc][ndir])
-      {
-        best[nr][nc][ndir] = newCost;
-        String move = moveDir(current.dir, ndir);
-        String newPath = current.path;
-        newPath += move;
-        addNode(nr, nc, ndir, newCost, newPath);
-      }
-    }
-  }
-  Serial.println("No path found!");
-}
-
 void stopping()
 {
   stopMotors();
 }
+
+//////////////////////////////////////////////////////////////////////////////////////////////////////
+
+struct Node
+{
+  byte x, y, dir;
+  float g, f;
+  short parent;
+  bool opened, closed;
+};
+
+Node nodes[MAX_ROWS * MAX_COLS * 4];
+int openList[MAX_ROWS * MAX_COLS * 4];
+int openCount;
+
+// Global path strings for both mazes
+String path9 = "";
+String path4 = "";
+
+// ---------- Helper Functions ----------
+float heuristic(int x, int y, int gx, int gy)
+{
+  return abs(gx - x) + abs(gy - y);
+}
+
+void addToOpenList(int idx)
+{
+  int i = openCount++;
+  openList[i] = idx;
+  while (i > 0)
+  {
+    int p = (i - 1) / 2;
+    if (nodes[openList[p]].f <= nodes[openList[i]].f)
+      break;
+    int tmp = openList[p];
+    openList[p] = openList[i];
+    openList[i] = tmp;
+    i = p;
+  }
+}
+
+int popFromOpenList()
+{
+  int res = openList[0];
+  openList[0] = openList[--openCount];
+  int i = 0;
+  while (true)
+  {
+    int l = i * 2 + 1, r = l + 1, smallest = i;
+    if (l < openCount && nodes[openList[l]].f < nodes[openList[smallest]].f)
+      smallest = l;
+    if (r < openCount && nodes[openList[r]].f < nodes[openList[smallest]].f)
+      smallest = r;
+    if (smallest == i)
+      break;
+    int tmp = openList[i];
+    openList[i] = openList[smallest];
+    openList[smallest] = tmp;
+    i = smallest;
+  }
+  return res;
+}
+
+bool wallPresent(int *maze, int rows, int cols, int x, int y, int dirBit)
+{
+  if (x < 0 || y < 0 || x >= rows || y >= cols)
+    return true;
+  return (maze[x * cols + y] & dirBit);
+}
+
+// ---------- A* Pathfinder ----------
+String findPath(int *maze, int rows, int cols,
+                int startX, int startY, int goalX, int goalY, int startDir)
+{
+  int total = rows * cols * 4;
+  for (int i = 0; i < total; i++)
+  {
+    nodes[i].opened = nodes[i].closed = false;
+    nodes[i].parent = -1;
+  }
+  openCount = 0;
+
+  int startIdx = (startX * cols + startY) * 4 + startDir;
+  Node &start = nodes[startIdx];
+  start.x = startX;
+  start.y = startY;
+  start.dir = startDir;
+  start.g = 0;
+  start.f = heuristic(startX, startY, goalX, goalY);
+  addToOpenList(startIdx);
+  start.opened = true;
+
+  int found = -1;
+
+  while (openCount > 0)
+  {
+    int curIdx = popFromOpenList();
+    Node &cur = nodes[curIdx];
+    cur.closed = true;
+
+    if (cur.x == goalX && cur.y == goalY)
+    {
+      found = curIdx;
+      break;
+    }
+
+    // Turns
+    for (int t = -2; t <= 2; t++)
+    {
+      if (t == 0)
+        continue;
+      int ndir = (cur.dir + t + 4) % 4;
+      float turnCost = (abs(t) == 2) ? costTurn180 : costTurn90;
+      int nidx = (cur.x * cols + cur.y) * 4 + ndir;
+      if (nodes[nidx].closed)
+        continue;
+      float ng = cur.g + turnCost;
+      if (!nodes[nidx].opened || ng < nodes[nidx].g)
+      {
+        nodes[nidx] = {cur.x, cur.y, (byte)ndir, ng, ng + heuristic(cur.x, cur.y, goalX, goalY),
+                       (short)curIdx, true, false};
+        addToOpenList(nidx);
+      }
+    }
+
+    // Forward moves (1–4)
+    for (int step = 1; step <= 4; step++)
+    {
+      int nx = cur.x + DX[cur.dir] * step;
+      int ny = cur.y + DY[cur.dir] * step;
+      if (nx < 0 || ny < 0 || nx >= rows || ny >= cols)
+        break;
+      if (wallPresent(maze, rows, cols,
+                      cur.x + DX[cur.dir] * (step - 1),
+                      cur.y + DY[cur.dir] * (step - 1),
+                      DIRS[cur.dir]))
+        break;
+
+      float moveCost;
+      if (step == 1)
+        moveCost = costF1;
+      else if (step == 2)
+        moveCost = costF2;
+      else if (step == 3)
+        moveCost = costF3;
+      else
+        moveCost = costF4;
+
+      int nidx = (nx * cols + ny) * 4 + cur.dir;
+      if (nodes[nidx].closed)
+        continue;
+      float ng = cur.g + moveCost;
+      if (!nodes[nidx].opened || ng < nodes[nidx].g)
+      {
+        nodes[nidx] = {(byte)nx, (byte)ny, cur.dir, ng,
+                       ng + heuristic(nx, ny, goalX, goalY),
+                       (short)curIdx, true, false};
+        addToOpenList(nidx);
+      }
+    }
+  }
+
+  if (found == -1)
+    return "No path found";
+
+  // Reconstruct path and encode
+  String moves = "";
+  int idx = found;
+  int lastDir = nodes[idx].dir;
+  int lastX = nodes[idx].x, lastY = nodes[idx].y;
+
+  while (nodes[idx].parent != -1)
+  {
+    Node &p = nodes[nodes[idx].parent];
+    if (p.x == lastX && p.y == lastY)
+    {
+      int diff = (lastDir - p.dir + 4) % 4;
+      if (diff == 1)
+        moves += 'L';
+      else if (diff == 3)
+        moves += 'R';
+      else if (diff == 2)
+        moves += 'U';
+      lastDir = p.dir;
+    }
+    else
+    {
+      int dx = abs(p.x - lastX) + abs(p.y - lastY);
+      // Forward encoding rule
+      if (dx == 2)
+        moves += 'F';
+      else if (dx == 3)
+        moves += "FF";
+      else if (dx == 4)
+        moves += "FFF";
+    }
+    idx = nodes[idx].parent;
+    lastX = p.x;
+    lastY = p.y;
+  }
+
+  // Reverse string before return
+  String reversed = "";
+  for (int i = moves.length() - 1; i >= 0; i--)
+    reversed += moves[i];
+  return reversed;
+}
+
+// West 1 North 2 East 4 South 8
+int maze9[9][9] = {
+    {0xB, 0x6, 0x3, 0x6, 0x3, 0xA, 0x2, 0xA, 0xE},
+    {0x7, 0x9, 0x4, 0x5, 0x5, 0x3, 0x0, 0xA, 0xE},
+    {0x5, 0x3, 0xC, 0x1, 0xC, 0x5, 0x9, 0xA, 0x6},
+    {0x1, 0x4, 0x3, 0xC, 0x7, 0x9, 0x2, 0x6, 0xD},
+    {0xD, 0x5, 0x9, 0xA, 0x0, 0xA, 0x4, 0x9, 0xE},
+    {0x3, 0x4, 0xB, 0x6, 0x1, 0xE, 0x1, 0xA, 0x6},
+    {0x5, 0x9, 0x6, 0x1, 0x8, 0x6, 0x5, 0x3, 0x4},
+    {0x9, 0x6, 0x9, 0xC, 0x3, 0x4, 0x5, 0x5, 0xD},
+    {0xB, 0xC, 0xB, 0x2, 0xC, 0x9, 0xC, 0x9, 0xE}};
+
+int maze4[4][4] = {
+    {0x5, 0x3, 0xA, 0x6},
+    {0x9, 0x4, 0xB, 0x4},
+    {0x3, 0x4, 0x7, 0x5},
+    {0xD, 0x9, 0x8, 0xC}};
 
 ///////////////////////////////////////////////////////////////////////////////////////////////////
 
@@ -575,14 +674,18 @@ void mazeSolverLoop()
   if (moveCount == 0)
   {
     currentMode = STOPPING;
-    Serial.println("Stopping 4");
     return;
   }
   if (moveCount <= moveIteration)
   {
-    moveForward(0); // Moving foward
-    // currentMode = LINE_FOLLOWER;
-    //  currentMode = STOPPING;
+    if (moveCount = path4.length())
+    {
+      moveForward(0); // Moving foward
+    }
+    else
+    {
+      currentMode = STOPPING;
+    }
     return;
   }
 
@@ -597,7 +700,6 @@ void mazeSolverLoop()
     }
     else
     {
-      Serial.println("Stopping 1");
       currentMode = STOPPING;
     }
   }
@@ -699,17 +801,20 @@ void setup()
   pinMode(TRIG_RIGHT, OUTPUT);
   pinMode(ECHO_RIGHT, INPUT);
 
-  Serial.println("Robot Ready — Default Mode: Maze Solver");
+  Serial.println("Calculating paths...");
 
-  ////////////////////////////////////////////////////////////////////////////////////////////
-  int maze[4][4] = {
-      {0x5, 0x3, 0xA, 0x6},
-      {0x9, 0x4, 0xB, 0x4},
-      {0x3, 0x4, 0x7, 0x5},
-      {0xD, 0x9, 0x8, 0xC}}; // West = 1, North = 2, East = 4, South = 8
+  // East 0 ; North 1 ; West 2 ; South 3
+  path9 = findPath((int *)maze9, 9, 9, 0, 0, 8, 8, 0);
+  path4 = findPath((int *)maze4, 4, 4, 2, 2, 0, 0, 3);
 
-  float straight_costs[4] = {0.0, 1.2, 2.1, 3.0};
-  findFastestPath(maze, 3, 0, 0, 0, 0, straight_costs, 0.6, 1.1); // Directions: 0=North,1=East,2=South,3=West
+  Serial.print("9x9 Path: ");
+  Serial.println(path9);
+  Serial.print("4x4 Path: ");
+  Serial.println(path4);
+  moveOrder = path4;
+  moveCount = moveOrder.length();
+
+  Serial.println("4x4 Maze Solving Started");
 }
 
 // ======================= MAIN LOOP =======================
@@ -720,11 +825,15 @@ void loop()
 
   if (distLeft > 60 && distRight > 60 && currentMode == MAZE_SOLVER)
   {
-    currentMode = LINE_FOLLOWER;
     Serial.println("Line Followowing Started");
+    currentMode = LINE_FOLLOWER;
   }
-  else if (distLeft < sideThreshold && distRight < sideThreshold && (currentMode == LINE_FOLLOWER || currentMode == STOPPING))
+  else if (distLeft < sideThreshold && distRight < sideThreshold && currentMode == LINE_FOLLOWER)
   {
+    Serial.println("9x9 Maze Solving Started");
+    moveOrder = path9;
+    moveCount = moveOrder.length();
+    moveIteration = 0;
     currentMode = MAZE_SOLVER;
   }
 
