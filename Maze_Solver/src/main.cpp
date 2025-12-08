@@ -50,14 +50,14 @@ volatile long encoderCountRight = 0;
 #define ECHO_RIGHT 47
 
 // ======================= MAZE NAVIGATION CONFIG =======================
-int frontThreshold = 11;
+int frontThreshold = 10;
 int sideThreshold = 15;
-float correctionGain = 2.5; // Forward Movement Left & Right Adjustment
-long countsFor90Deg = 130;
+float correctionGain = 3; // Forward Movement Left & Right Adjustment
+long countsFor90Deg = 130-25;
 int targetWallDist = 6;
 long preTurnClearance = 110;
 long postTurnClearance = 120;
-long oneCellCount = 300;
+long oneCellCount = 260;
 int sensorCorrection = 97;
 String moveOrder = "";
 int moveCount = 0;
@@ -194,7 +194,7 @@ long getDistance(int trigPin, int echoPin)
 }
 
 // ======================= MAZE SOLVER LOGIC =======================
-void moveForward(int typeRun) // 0 - Normal, 1 - Pre Turn Clearance, 2 - Post Turn Clearance, 3 - One cell
+void moveForward(long forwardCount) // 0 - Normal
 {
   noInterrupts();
   long startRight = encoderCountRight;
@@ -253,19 +253,9 @@ void moveForward(int typeRun) // 0 - Normal, 1 - Pre Turn Clearance, 2 - Post Tu
     long rightMoved = abs(encoderCountRight - startRight);
     long leftMoved = abs(encoderCountLeft - startLeft);
     interrupts();
-    if (typeRun == 1)
+    if (forwardCount > 0)
     {
-      if ((rightMoved + leftMoved) / 2 >= preTurnClearance)
-        break;
-    }
-    else if (typeRun == 2)
-    {
-      if ((rightMoved + leftMoved) / 2 >= postTurnClearance)
-        break;
-    }
-    else if (typeRun == 3)
-    {
-      if ((rightMoved + leftMoved) / 2 >= oneCellCount)
+      if ((rightMoved + leftMoved) / 2 >= forwardCount)
         break;
     }
     else
@@ -536,12 +526,14 @@ String findPath(int *maze, int rows, int cols,
     {
       int dx = abs(p.x - lastX) + abs(p.y - lastY);
       // Forward encoding rule
-      if (dx == 2)
+      for (int i = 0; i < dx; i++)
+        moves += 'F';
+      /* if (dx == 2)
         moves += 'F';
       else if (dx == 3)
         moves += "FF";
       else if (dx == 4)
-        moves += "FFF";
+        moves += "FFF"; */
     }
     idx = nodes[idx].parent;
     lastX = p.x;
@@ -678,12 +670,13 @@ void mazeSolverLoop()
   }
   if (moveCount <= moveIteration)
   {
-    if (moveCount = path4.length())
+    if (moveCount == path4.length())
     {
-      moveForward(0); // Moving foward
+      moveForward(0); // Moving forward
     }
     else
     {
+      moveForward(oneCellCount);
       currentMode = STOPPING;
     }
     return;
@@ -695,29 +688,23 @@ void mazeSolverLoop()
     if (distFront > frontThreshold)
     {
       Serial.println("Moving Forward by 1 Cell");
-      moveForward(3);
-      moveIteration++;
+      moveForward(oneCellCount);
     }
-    else
-    {
-      currentMode = STOPPING;
-    }
+    moveIteration++;
   }
   else if (move == 'L')
   {
     if (distLeft > sideThreshold)
     {
-      if (moveIteration == 0)
+      if (moveIteration == 20)
       {
         turnLeft90();
       }
       else
       {
         Serial.println("Turning Left");
-        moveForward(1);
         stopMotors();
         turnLeft90();
-        moveForward(2);
       }
       moveIteration++;
     }
@@ -730,17 +717,15 @@ void mazeSolverLoop()
   {
     if (distRight > sideThreshold)
     {
-      if (moveIteration == 0)
+      if (moveIteration == 20)
       {
         turnLeft90();
       }
       else
       {
         Serial.println("Turning Right");
-        moveForward(1);
         stopMotors();
         turnRight90();
-        moveForward(2);
       }
       moveIteration++;
     }
@@ -811,7 +796,7 @@ void setup()
   Serial.println(path9);
   Serial.print("4x4 Path: ");
   Serial.println(path4);
-  moveOrder = path4;
+  moveOrder = path9;
   moveCount = moveOrder.length();
 
   Serial.println("4x4 Maze Solving Started");
@@ -820,10 +805,11 @@ void setup()
 // ======================= MAIN LOOP =======================
 void loop()
 {
+  long distFront = getDistance(TRIG_FRONT, ECHO_LEFT) - sensorCorrection;
   long distLeft = getDistance(TRIG_LEFT, ECHO_LEFT) - sensorCorrection;
   long distRight = getDistance(TRIG_RIGHT, ECHO_RIGHT);
 
-  if (distLeft > 60 && distRight > 60 && currentMode == MAZE_SOLVER)
+  if (distLeft > 60 && distRight > 60 && distFront > 20 && currentMode == MAZE_SOLVER)
   {
     Serial.println("Line Followowing Started");
     currentMode = LINE_FOLLOWER;
