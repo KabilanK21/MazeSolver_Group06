@@ -1,4 +1,5 @@
 #include <Arduino.h>
+#include <EEPROM.h>
 
 // ======================= IR LINE FOLLOWER CONFIG =======================
 const int IR_PINS[8] = {41, 37, 36, 33, 32, 31, 30, 28};
@@ -52,12 +53,12 @@ volatile long encoderCountRight = 0;
 // ======================= MAZE NAVIGATION CONFIG =======================
 int frontThreshold = 10;
 int sideThreshold = 15;
-float correctionGain = 3; // Forward Movement Left & Right Adjustment
-long countsFor90Deg = 130-25;
+float correctionGain = 2.9; // Forward Movement Left & Right Adjustment
+long countsFor90Deg = 127;
 int targetWallDist = 6;
 long preTurnClearance = 110;
 long postTurnClearance = 120;
-long oneCellCount = 260;
+long oneCellCount = 255;
 int sensorCorrection = 97;
 String moveOrder = "";
 int moveCount = 0;
@@ -547,6 +548,24 @@ String findPath(int *maze, int rows, int cols,
   return reversed;
 }
 
+// Wrapper: copy a uint8_t map into temporary int array and call findPath
+String findPathFromUint8(uint8_t *map, int rows, int cols,
+                         int startX, int startY, int goalX, int goalY, int startDir)
+{
+  // allocate on stack if small
+  int tmp = 0; // placeholder to avoid unused warning in some toolchains
+  int total = rows * cols;
+  int *buf = (int *)malloc(sizeof(int) * total);
+  if (!buf)
+    return String("No memory");
+  for (int r = 0; r < rows; r++)
+    for (int c = 0; c < cols; c++)
+      buf[r * cols + c] = (int)map[r * cols + c];
+  String res = findPath(buf, rows, cols, startX, startY, goalX, goalY, startDir);
+  free(buf);
+  return res;
+}
+
 // West 1 North 2 East 4 South 8
 int maze9[9][9] = {
     {0xB, 0x6, 0x3, 0x6, 0x3, 0xA, 0x2, 0xA, 0xE},
@@ -566,6 +585,209 @@ int maze4[4][4] = {
     {0xD, 0x9, 0x8, 0xC}};
 
 ///////////////////////////////////////////////////////////////////////////////////////////////////
+
+// ======================= EXPLORATION STORAGE (stored in RAM; optionally persisted to EEPROM) ======
+uint8_t exploredMaze4[4][4];
+uint8_t exploredMaze9[9][9];
+
+// EEPROM layout / constants for Arduino Uno
+const int EEPROM_MAGIC_ADDR = 0;       // uint16_t (2 bytes)
+const int EEPROM_VERSION_ADDR = 2;     // uint8_t
+const int EEPROM_MAP4_ADDR = 4;        // 16 bytes
+const int EEPROM_MAP9_ADDR = 20;       // 81 bytes
+const uint16_t EEPROM_MAGIC = 0xA5A5;
+const uint8_t EEPROM_VERSION = 1;
+
+// Save/load explored maps to EEPROM (use update to avoid unnecessary writes)
+void saveMapsToEEPROM(uint8_t *map4, int rows4, int cols4, uint8_t *map9, int rows9, int cols9)
+{
+  // header
+  EEPROM.update(EEPROM_MAGIC_ADDR, (uint8_t)(EEPROM_MAGIC & 0xFF));
+  EEPROM.update(EEPROM_MAGIC_ADDR + 1, (uint8_t)((EEPROM_MAGIC >> 8) & 0xFF));
+  EEPROM.update(EEPROM_VERSION_ADDR, EEPROM_VERSION);
+
+  int addr = EEPROM_MAP4_ADDR;
+  for (int r = 0; r < rows4; r++)
+    for (int c = 0; c < cols4; c++)
+      EEPROM.update(addr++, map4[r * cols4 + c]);
+
+  addr = EEPROM_MAP9_ADDR;
+  for (int r = 0; r < rows9; r++)
+    for (int c = 0; c < cols9; c++)
+      EEPROM.update(addr++, map9[r * cols9 + c]);
+}
+
+bool loadMapsFromEEPROM(uint8_t *map4, int rows4, int cols4, uint8_t *map9, int rows9, int cols9)
+{
+  uint16_t magic = EEPROM.read(EEPROM_MAGIC_ADDR) | (EEPROM.read(EEPROM_MAGIC_ADDR + 1) << 8);
+  if (magic != EEPROM_MAGIC)
+    return false;
+  // optional: check version
+  int addr = EEPROM_MAP4_ADDR;
+  for (int r = 0; r < rows4; r++)
+    for (int c = 0; c < cols4; c++)
+      map4[r * cols4 + c] = EEPROM.read(addr++);
+
+  addr = EEPROM_MAP9_ADDR;
+  for (int r = 0; r < rows9; r++)
+    for (int c = 0; c < cols9; c++)
+      map9[r * cols9 + c] = EEPROM.read(addr++);
+
+  return true;
+}
+
+// Invalidate saved maps by clearing the magic header (fast, minimal EEPROM writes)
+void eraseMapsInvalidateHeader()
+{
+  EEPROM.update(EEPROM_MAGIC_ADDR, 0xFF);
+  EEPROM.update(EEPROM_MAGIC_ADDR + 1, 0xFF);
+}
+
+
+// mark wall at cell (x,y) in dirBit and set corresponding wall on neighbor for generic sized map
+void markWallGeneric(uint8_t *explored, int rows, int cols, int x, int y, int dirBit)
+{
+  if (x < 0 || y < 0 || x >= rows || y >= cols)
+    return;
+  explored[x * cols + y] |= dirBit;
+  int dirIdx = 0;
+  for (int i = 0; i < 4; i++)
+    if (DIRS[i] == dirBit)
+      dirIdx = i;
+  int nx = x + DX[dirIdx];
+  int ny = y + DY[dirIdx];
+  if (nx >= 0 && ny >= 0 && nx < rows && ny < cols)
+    explored[nx * cols + ny] |= DIRS[(dirIdx + 2) % 4];
+}
+
+// Sense walls around current pose and update explored map (generic)
+void senseAndUpdateWallsGeneric(uint8_t *explored, int rows, int cols, int curX, int curY, int curDir)
+{
+  long df = getDistance(TRIG_FRONT, ECHO_FRONT) - sensorCorrection;
+  long dl = getDistance(TRIG_LEFT, ECHO_LEFT) - sensorCorrection;
+  long dr = getDistance(TRIG_RIGHT, ECHO_RIGHT);
+
+  int frontBit = DIRS[curDir];
+  int leftBit = DIRS[(curDir + 1) % 4];
+  int rightBit = DIRS[(curDir + 3) % 4];
+
+  if (df <= frontThreshold)
+    markWallGeneric(explored, rows, cols, curX, curY, frontBit);
+  if (dl <= sideThreshold)
+    markWallGeneric(explored, rows, cols, curX, curY, leftBit);
+  if (dr <= sideThreshold)
+    markWallGeneric(explored, rows, cols, curX, curY, rightBit);
+}
+
+// Turn robot to target absolute direction index (0..3) and update dir reference
+void turnToDirGeneric(int &curDir, int targetDir)
+{
+  int diff = (targetDir - curDir + 4) % 4;
+  if (diff == 0)
+    return;
+  else if (diff == 1){
+    stopMotors();
+    turnLeft90();
+  }
+  else if (diff == 3){
+    stopMotors();
+    turnRight90();
+  }
+  else
+    turnAround();
+  curDir = targetDir;
+}
+
+// Move forward one cell using existing movement and update pos
+void moveOneCellForwardUpdatePoseGeneric(int &curX, int &curY, int curDir)
+{
+  moveForward(oneCellCount);
+  curX += DX[curDir];
+  curY += DY[curDir];
+}
+
+// Generic DFS exploration for small mazes (rows x cols), fills 'explored' flattened array
+void exploreMazeGeneric(int rows, int cols, int startX, int startY, int startDir, uint8_t *explored)
+{
+  int maxCells = rows * cols;
+  // temporary visited map
+  bool visited[81];
+  for (int i = 0; i < maxCells; i++)
+  {
+    explored[i] = 0;
+    visited[i] = false;
+  }
+
+  int curX = startX;
+  int curY = startY;
+  int curDir = startDir;
+
+  // stack for backtracking
+  int stackX[81];
+  int stackY[81];
+  int top = 0;
+
+  visited[curX * cols + curY] = true;
+
+  while (true)
+  {
+    senseAndUpdateWallsGeneric(explored, rows, cols, curX, curY, curDir);
+
+    // try neighbors in order: front, left, right, back
+    bool moved = false;
+    int order[4] = {0, 1, 3, 2};
+    for (int k = 0; k < 4; k++)
+    {
+      int ndir = (curDir + order[k]) % 4;
+      int nx = curX + DX[ndir];
+      int ny = curY + DY[ndir];
+      if (nx < 0 || ny < 0 || nx >= rows || ny >= cols)
+        continue;
+      // if wall present in this direction, skip
+      if (explored[curX * cols + curY] & DIRS[ndir])
+        continue;
+      if (!visited[nx * cols + ny])
+      {
+        // push current pos to stack for backtracking
+        stackX[top] = curX;
+        stackY[top] = curY;
+        top++;
+        // turn, move
+        turnToDirGeneric(curDir, ndir);
+        moveOneCellForwardUpdatePoseGeneric(curX, curY, curDir);
+        visited[curX * cols + curY] = true;
+        moved = true;
+        break;
+      }
+    }
+    if (moved)
+      continue;
+
+    // no unvisited neighbors: backtrack
+    if (top == 0)
+      break; // exploration finished
+
+    top--;
+    int px = stackX[top];
+    int py = stackY[top];
+    // compute direction to prev
+    int dx = px - curX;
+    int dy = py - curY;
+    int targetDir = -1;
+    for (int d = 0; d < 4; d++)
+    {
+      if (DX[d] == dx && DY[d] == dy)
+      {
+        targetDir = d;
+        break;
+      }
+    }
+    if (targetDir == -1)
+      break; // something wrong
+    turnToDirGeneric(curDir, targetDir);
+    moveOneCellForwardUpdatePoseGeneric(curX, curY, curDir);
+  }
+}
 
 // ======================= LINE FOLLOWING LOGIC =======================
 void lineFollowerLoop()
@@ -789,23 +1011,100 @@ void setup()
   Serial.println("Calculating paths...");
 
   // East 0 ; North 1 ; West 2 ; South 3
-  path9 = findPath((int *)maze9, 9, 9, 0, 0, 8, 8, 0);
-  path4 = findPath((int *)maze4, 4, 4, 2, 2, 0, 0, 3);
+  Serial.println("Starting automatic exploration of both mazes...");
 
-  Serial.print("9x9 Path: ");
-  Serial.println(path9);
-  Serial.print("4x4 Path: ");
-  Serial.println(path4);
-  moveOrder = path9;
+  // Erase stored maps so exploration runs fresh every boot
+  // Comment out to retain stored maps between resets
+  eraseMapsInvalidateHeader();
+
+  // Try to load previously saved maps from EEPROM (will fail because header was invalidated)
+  bool loaded = loadMapsFromEEPROM(&exploredMaze4[0][0], 4, 4, &exploredMaze9[0][0], 9, 9);
+  if (loaded)
+  {
+    Serial.println("Loaded explored maps from EEPROM.");
+    Serial.println("Explored 4x4 map (hex):");
+    for (int i = 0; i < 4; i++)
+    {
+      for (int j = 0; j < 4; j++)
+      {
+        Serial.print("0x");
+        Serial.print(exploredMaze4[i][j], HEX);
+        Serial.print(" ");
+      }
+      Serial.println();
+    }
+    path4 = findPathFromUint8(&exploredMaze4[0][0], 4, 4, 2, 2, 0, 0, 3);
+    Serial.print("4x4 Loaded Path: ");
+    Serial.println(path4);
+
+    Serial.println("Explored 9x9 map (hex):");
+    for (int i = 0; i < 9; i++)
+    {
+      for (int j = 0; j < 9; j++)
+      {
+        Serial.print("0x");
+        Serial.print(exploredMaze9[i][j], HEX);
+        Serial.print(" ");
+      }
+      Serial.println();
+    }
+    path9 = findPathFromUint8(&exploredMaze9[0][0], 9, 9, 0, 0, 8, 8, 0);
+    Serial.print("9x9 Loaded Path: ");
+    Serial.println(path9);
+  }
+  else
+  {
+    // // Explore 4x4 (start at 2,2 facing South (3)) and compute path
+    Serial.println("Exploring 4x4 maze...");
+    exploreMazeGeneric(4, 4, 2, 2, 3, &exploredMaze4[0][0]);
+    Serial.println("Explored 4x4 map (hex):");
+    for (int i = 0; i < 4; i++)
+    {
+      for (int j = 0; j < 4; j++)
+      {
+        Serial.print("0x");
+        Serial.print(exploredMaze4[i][j], HEX);
+        Serial.print(" ");
+      }
+      Serial.println();
+    }
+    path4 = findPathFromUint8(&exploredMaze4[0][0], 4, 4, 2, 2, 0, 0, 3);
+    Serial.print("4x4 Discovered Path: ");
+    Serial.println(path4);
+
+    // Explore 9x9 (start at 0,0 facing East (0)) and compute path
+    Serial.println("Exploring 9x9 maze...");
+    exploreMazeGeneric(9, 9, 0, 0, 0, &exploredMaze9[0][0]);
+    Serial.println("Explored 9x9 map (hex):");
+    for (int i = 0; i < 9; i++)
+    {
+      for (int j = 0; j < 9; j++)
+      {
+        Serial.print("0x");
+        Serial.print(exploredMaze9[i][j], HEX);
+        Serial.print(" ");
+      }
+      Serial.println();
+    }
+    path9 = findPathFromUint8(&exploredMaze9[0][0], 9, 9, 0, 0, 8, 8, 0);
+    Serial.print("9x9 Discovered Path: ");
+    Serial.println(path9);
+
+    // Persist discovered maps
+    saveMapsToEEPROM(&exploredMaze4[0][0], 4, 4, &exploredMaze9[0][0], 9, 9);
+    Serial.println("Saved explored maps to EEPROM.");
+  }
+
+  // Default to solving the 4x4 discovered path first
+  moveOrder = path4;
   moveCount = moveOrder.length();
-
-  Serial.println("4x4 Maze Solving Started");
+  Serial.println("Automatic exploration complete. Ready to solve 4x4.");
 }
 
 // ======================= MAIN LOOP =======================
 void loop()
 {
-  long distFront = getDistance(TRIG_FRONT, ECHO_LEFT) - sensorCorrection;
+  long distFront = getDistance(TRIG_FRONT, ECHO_FRONT) - sensorCorrection;
   long distLeft = getDistance(TRIG_LEFT, ECHO_LEFT) - sensorCorrection;
   long distRight = getDistance(TRIG_RIGHT, ECHO_RIGHT);
 
