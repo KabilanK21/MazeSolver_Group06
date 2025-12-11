@@ -53,8 +53,8 @@ volatile long encoderCountRight = 0;
 // ======================= MAZE NAVIGATION CONFIG =======================
 int frontThreshold = 10;
 int sideThreshold = 15;
-float correctionGain = 3; // Forward Movement Left & Right Adjustment
-long countsFor90Deg = 127;
+float correctionGain = 3.5; // Forward Movement Left & Right Adjustment
+long countsFor90Deg = 127-15;
 int targetWallDist = 6;
 long oneCellCount = 260;
 int sensorCorrection = 97;
@@ -506,9 +506,10 @@ String findPath(int *maze, int rows, int cols,
     }
   }
 
-  if (found == -1)
+  if (found == -1){
     currentMode = STOPPING;
-  return "No path found";
+    return "No path found";
+  }
 
   // Reconstruct path and encode
   String moves = "";
@@ -569,7 +570,7 @@ String findPathFromUint8(uint8_t *map, int rows, int cols,
 
 // West 1 North 2 East 4 South 8
 int maze9[9][9] = {
-    {0xB, 0x6, 0x3, 0x6, 0x3, 0xA, 0x2, 0xA, 0xE},
+    {0xA, 0x6, 0x3, 0x6, 0x3, 0xA, 0x2, 0xA, 0xE},
     {0x7, 0x9, 0x4, 0x5, 0x5, 0x3, 0x0, 0xA, 0xE},
     {0x5, 0x3, 0xC, 0x1, 0xC, 0x5, 0x9, 0xA, 0x6},
     {0x1, 0x4, 0x3, 0xC, 0x7, 0x9, 0x2, 0x6, 0xD},
@@ -577,7 +578,7 @@ int maze9[9][9] = {
     {0x3, 0x4, 0xB, 0x6, 0x1, 0xE, 0x1, 0xA, 0x6},
     {0x5, 0x9, 0x6, 0x1, 0x8, 0x6, 0x5, 0x3, 0x4},
     {0x9, 0x6, 0x9, 0xC, 0x3, 0x4, 0x5, 0x5, 0xD},
-    {0xB, 0xC, 0xB, 0x2, 0xC, 0x9, 0xC, 0x9, 0xE}};
+    {0xB, 0xC, 0xB, 0xA, 0xC, 0x9, 0xC, 0x9, 0xE}};
 
 int maze4[4][4] = {
     {0x5, 0x3, 0xA, 0x6},
@@ -998,12 +999,14 @@ void mazeSolverLoop()
       moveForward(0);
     }
   }
-  else
+  else if (move == 'U')
   {
     Serial.println("Turning Around");
     turnAround();
     moveIteration++;
   }
+  else
+    currentMode = STOPPING;
 }
 
 void solveMaze4()
@@ -1055,7 +1058,7 @@ void solveMaze9()
   loadedMap9 = loadMap9FromEEPROM(&exploredMaze9[0][0], 9, 9);
   if (loadedMap9)
   {
-    Serial.println("Loaded explored map4 from EEPROM.");
+    Serial.println("Loaded explored map9 from EEPROM.");
     Serial.println("Explored 9x9 map (hex):");
     for (int i = 0; i < 9; i++)
     {
@@ -1067,7 +1070,8 @@ void solveMaze9()
       }
       Serial.println();
     }
-    path9 = findPathFromUint8(&exploredMaze9[0][0], 9, 9, 0, 0, endPointR, endPointC, 0);
+    path9 = findPathFromUint8(&exploredMaze9[0][0], 9, 9, 0, 0, 8, 8, 0);
+    // path9 = findPathFromUint8(&exploredMaze9[0][0], 9, 9, 0, 0, endPointR, endPointC, 0);
   }
   else
   {
