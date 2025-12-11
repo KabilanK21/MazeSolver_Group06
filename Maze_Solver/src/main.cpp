@@ -53,10 +53,10 @@ volatile long encoderCountRight = 0;
 // ======================= MAZE NAVIGATION CONFIG =======================
 int frontThreshold = 10;
 int sideThreshold = 15;
-float correctionGain = 2.9; // Forward Movement Left & Right Adjustment
+float correctionGain = 3; // Forward Movement Left & Right Adjustment
 long countsFor90Deg = 127;
 int targetWallDist = 6;
-long oneCellCount = 250;
+long oneCellCount = 260;
 int sensorCorrection = 97;
 String moveOrder = "";
 int moveCount = 0;
@@ -507,7 +507,8 @@ String findPath(int *maze, int rows, int cols,
   }
 
   if (found == -1)
-    return "No path found";
+    currentMode = STOPPING;
+  return "No path found";
 
   // Reconstruct path and encode
   String moves = "";
@@ -535,12 +536,6 @@ String findPath(int *maze, int rows, int cols,
       // Forward encoding rule
       for (int i = 0; i < dx; i++)
         moves += 'F';
-      /* if (dx == 2)
-        moves += 'F';
-      else if (dx == 3)
-        moves += "FF";
-      else if (dx == 4)
-        moves += "FFF"; */
     }
     idx = nodes[idx].parent;
     lastX = p.x;
@@ -601,8 +596,8 @@ const int EEPROM_MAGIC_ADDR = 0;   // uint16_t (2 bytes)
 const int EEPROM_VERSION_ADDR = 2; // uint8_t
 const int EEPROM_MAP4_ADDR = 4;    // 16 bytes
 const int EEPROM_MAP9_ADDR = 20;   // 81 bytes
-const int EEPROM_VAR1_ADDR = 101;
-const int EEPROM_VAR2_ADDR = 102;
+// const int EEPROM_VAR1_ADDR = 101;
+// const int EEPROM_VAR2_ADDR = 103;
 const uint16_t EEPROM_MAGIC = 0xA5A5;
 const uint8_t EEPROM_VERSION = 1;
 
@@ -633,7 +628,7 @@ void saveMap9ToEEPROM(uint8_t *map9, int rows9, int cols9)
       EEPROM.update(addr++, map9[r * cols9 + c]);
 }
 
-void saveVariablesToEEPROM(uint16_t var1, uint16_t var2)
+/* void saveVariablesToEEPROM(uint16_t var1, uint16_t var2)
 {
   // Save var1 (16-bit)
   EEPROM.update(EEPROM_VAR1_ADDR, (uint8_t)(var1 & 0xFF));
@@ -642,7 +637,7 @@ void saveVariablesToEEPROM(uint16_t var1, uint16_t var2)
   // Save var2 (16-bit)
   EEPROM.update(EEPROM_VAR2_ADDR, (uint8_t)(var2 & 0xFF));
   EEPROM.update(EEPROM_VAR2_ADDR + 1, (uint8_t)((var2 >> 8) & 0xFF));
-}
+} */
 
 bool loadMap4FromEEPROM(uint8_t *map4, int rows4, int cols4)
 {
@@ -671,11 +666,11 @@ bool loadMap9FromEEPROM(uint8_t *map9, int rows9, int cols9)
   return true;
 }
 
-void loadTwoVarsFromEEPROM()
+/* void loadTwoVarsFromEEPROM()
 {
   endPointR = EEPROM.read(EEPROM_VAR1_ADDR);
   endPointC = EEPROM.read(EEPROM_VAR2_ADDR);
-}
+}*/
 
 // Invalidate saved maps by clearing the magic header (fast, minimal EEPROM writes)
 void eraseMapsInvalidateHeader()
@@ -707,11 +702,18 @@ void senseAndUpdateWallsGeneric(uint8_t *explored, int rows, int cols, int curX,
   long dl = getDistance(TRIG_LEFT, ECHO_LEFT) - sensorCorrection;
   long dr = getDistance(TRIG_RIGHT, ECHO_RIGHT);
 
+  Serial.print("Front: ");
+  Serial.print(df);
+  Serial.print("   Left: ");
+  Serial.print(dl);
+  Serial.print("   Right: ");
+  Serial.println(dr);
+
   int frontBit = DIRS[curDir];
   int leftBit = DIRS[(curDir + 1) % 4];
   int rightBit = DIRS[(curDir + 3) % 4];
 
-  if (df <= frontThreshold)
+  if (df <= sideThreshold)
     markWallGeneric(explored, rows, cols, curX, curY, frontBit);
   if (dl <= sideThreshold)
     markWallGeneric(explored, rows, cols, curX, curY, leftBit);
@@ -817,6 +819,7 @@ void exploreMazeGeneric(int rows, int cols, int startX, int startY, int startDir
       lastR = curX;
       lastC = curY;
       lastDir = curDir;
+      stopMotors();
       break; // exploration finished
     }
 
@@ -952,12 +955,11 @@ void mazeSolverLoop()
     }
     else
     {
-      moveForward(oneCellCount);
+      // moveForward(oneCellCount);
       currentMode = STOPPING;
     }
     return;
   }
-
   char move = moveOrder[moveIteration];
   if (move == 'F')
   {
@@ -972,16 +974,9 @@ void mazeSolverLoop()
   {
     if (distLeft > sideThreshold)
     {
-      if (moveIteration == 20)
-      {
-        turnLeft90();
-      }
-      else
-      {
-        Serial.println("Turning Left");
-        stopMotors();
-        turnLeft90();
-      }
+      Serial.println("Turning Left");
+      stopMotors();
+      turnLeft90();
       moveIteration++;
     }
     else
@@ -993,16 +988,9 @@ void mazeSolverLoop()
   {
     if (distRight > sideThreshold)
     {
-      if (moveIteration == 20)
-      {
-        turnLeft90();
-      }
-      else
-      {
-        Serial.println("Turning Right");
-        stopMotors();
-        turnRight90();
-      }
+      Serial.println("Turning Right");
+      stopMotors();
+      turnRight90();
       moveIteration++;
     }
     else
@@ -1012,16 +1000,9 @@ void mazeSolverLoop()
   }
   else
   {
-    if (distFront > frontThreshold)
-    {
-      Serial.println("Turning Around");
-      turnAround();
-      moveIteration++;
-    }
-    else
-    {
-      moveForward(0);
-    }
+    Serial.println("Turning Around");
+    turnAround();
+    moveIteration++;
   }
 }
 
@@ -1049,7 +1030,7 @@ void solveMaze4()
   {
     // // Explore 4x4 (East 0 ; North 1 ; West 2 ; South 3)
     Serial.println("Exploring 4x4 maze...");
-    exploreMazeGeneric(4, 4, 1, 2, 2, &exploredMaze4[0][0]);
+    exploreMazeGeneric(4, 4, 1, 2, 0, &exploredMaze4[0][0]);
     Serial.println("Explored 4x4 map (hex):");
     for (int i = 0; i < 4; i++)
     {
@@ -1061,8 +1042,8 @@ void solveMaze4()
       }
       Serial.println();
     }
-    path4 = findPathFromUint8(&exploredMaze4[0][0], 4, 4, lastR, lastC, 0, 0, lastDir);
     saveMap4ToEEPROM(&exploredMaze4[0][0], 4, 4);
+    path4 = findPathFromUint8(&exploredMaze4[0][0], 4, 4, lastR, lastC, 0, 0, lastDir);
   }
   Serial.print("4x4 Discovered Path: ");
   Serial.println(path4);
@@ -1071,7 +1052,7 @@ void solveMaze4()
 void solveMaze9()
 {
   // Try to load previously saved maps from EEPROM (will fail because header was invalidated)
-  loadedMap9 = loadMap4FromEEPROM(&exploredMaze9[0][0], 9, 9);
+  loadedMap9 = loadMap9FromEEPROM(&exploredMaze9[0][0], 9, 9);
   if (loadedMap9)
   {
     Serial.println("Loaded explored map4 from EEPROM.");
@@ -1086,7 +1067,7 @@ void solveMaze9()
       }
       Serial.println();
     }
-    path9 = findPathFromUint8(&exploredMaze9[0][0], 9, 9, 0, 0, 8, 8, 0);
+    path9 = findPathFromUint8(&exploredMaze9[0][0], 9, 9, 0, 0, endPointR, endPointC, 0);
   }
   else
   {
@@ -1104,7 +1085,9 @@ void solveMaze9()
       }
       Serial.println();
     }
-    path9 = findPathFromUint8(&exploredMaze9[0][0], 9, 9, 0, 0, 8, 8, 0);
+    saveMap9ToEEPROM(&exploredMaze9[0][0], 9, 9);
+    // path9 = findPathFromUint8(&exploredMaze9[0][0], 9, 9, lastR, lastC, endPointR, endPointC, lastDir);
+    path9 = findPathFromUint8(&exploredMaze9[0][0], 9, 9, lastR, lastC, 8, 8, lastDir);
   }
   Serial.print("9x9 Discovered Path: ");
   Serial.println(path9);
@@ -1147,9 +1130,11 @@ void setup()
   pinMode(TRIG_RIGHT, OUTPUT);
   pinMode(ECHO_RIGHT, INPUT);
 
-  solveMaze4();
+  // eraseMapsInvalidateHeader();
 
-  moveOrder = path4;
+  solveMaze9();
+
+  moveOrder = path9;
   moveCount = moveOrder.length();
 }
 
