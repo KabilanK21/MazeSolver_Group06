@@ -5,23 +5,23 @@
 const int IR_PINS[8] = {41, 37, 36, 33, 32, 31, 30, 28};
 const int IR_ENABLE = 40;
 
-// PID constants
+// ======================= PID CONTROLS =======================
 float Kp = 0.27;
 float Ki = 0.0;
 float Kd = 0.13;
+
+float error = 0, lastError = 0, integral = 0;
 
 // ======================= SPEED CONTROLS =======================
 #define FORWARD_SPEED 120
 #define TURN_SPEED 120
 #define LINE_SPEED 120
+
 float forwardSpeedFactor = 0.8;
 float turnSpeedFactor = 0.6;
 float lineSpeedFactor = 0.7;
 int lastLeftSpeed = 0;
 int lastRightSpeed = 0;
-
-// PID variables
-float error = 0, lastError = 0, integral = 0;
 
 // ======================= MOTOR DRIVER CONFIG =======================
 #define RPWM_L 5
@@ -39,8 +39,8 @@ float error = 0, lastError = 0, integral = 0;
 #define ENCO_B_L 12
 #define ENCO_A_R 2
 #define ENCO_B_R 3
-volatile long encoderCountLeft = 0;
-volatile long encoderCountRight = 0;
+
+volatile long encoderCountLeft = 0, encoderCountRight = 0;
 
 // ======================= ULTRASONIC CONFIG =======================
 #define TRIG_FRONT 48
@@ -50,37 +50,56 @@ volatile long encoderCountRight = 0;
 #define TRIG_RIGHT 46
 #define ECHO_RIGHT 47
 
-// ======================= MAZE NAVIGATION CONFIG =======================
+// ======================= STARTING POSITION =======================
+int startRow = 2;
+int startCol = 2;
+int startDirection = 3; // East 0 ; North 1 ; West 2 ; South 3
+
+// ======================= THRESHOLD VALUES =======================
 int frontThreshold = 10;
 int sideThreshold = 15;
-float correctionGainTwoWall = 4.3;
-float correctionGain = 5.5; // Forward Movement Left & Right Adjustment
-long countsFor90Deg = 127 - 18;
 int targetWallDist = 6;
+int step = 12;
+
+// ======================= WALL ADJUSTMENT GAINS =======================
+float twoWallCorrectionGain = 4.3;
+float oneWallCorrectionGain = 5.5;
+
+// ======================= ENCORDER VALUES =======================
+long countsFor90Deg = 127 - 18;
 long oneCellCount = 235;
+
+// ======================= CORRECTION VALUES =======================
+int sensorCorrection = 98;
+
 long solvingModeTurnCorrection = -57;
-long exploringModeTurnAroundCorrection = 50;
+long solvingModeTurnAroundCorrection = 120;
 long solvingModeForwardCorrection = -40;
+long exploringModeTurnAroundCorrection = 50;
 long twoCellCountCorrection = 27;
 
-int sensorCorrection = 98;
-String moveOrder = "";
-int moveCount = 0;
-int moveIteration = 0;
+// ======================= FLAGS =======================
 bool solvingMode = false;
-int step = 12;
 bool lastActionForward = false;
 
-// ======================= LINE FOLLOWING CONFIG =======================
+bool loadedMap4 = false;
+bool loadedMap9 = false;
+bool loadedVar = false;
 
+// ======================= LINE FOLLOWING CONFIG =======================
 float TURN_GAIN = 1.6;
+
+// ======================= MISC VARIABLES =======================
+String moveOrder = "";
+int moveCount = 0, moveIteration = 0;
+
+int lastR = -1, lastC = -1, lastDir = -1, endPointR = -1, endPointC = -1;
 
 // ======================= PRINT CONTROL =======================
 unsigned long lastPrintTime = 0;
 const unsigned long printInterval = 500;
 
 // ======================= MAZE DATA =======================
-
 #define MAX_ROWS 9
 #define MAX_COLS 9
 
@@ -89,22 +108,8 @@ const int DX[4] = {0, -1, 0, 1};
 const int DY[4] = {1, 0, -1, 0};
 const int DIRS[4] = {4, 2, 1, 8}; // bitmask walls
 
-// Movement costs
-const float costF1 = 1.2;
-const float costF2 = 2.1;
-const float costF3 = 3.0;
-const float costF4 = 4.0;
-const float costTurn90 = 0.6;
-const float costTurn180 = 1.1;
-
-int lastR = -1;
-int lastC = -1;
-int lastDir = -1;
-int endPointR = -1;
-int endPointC = -1;
-bool loadedMap4 = false;
-bool loadedMap9 = false;
-bool loadedVar = false;
+// ======================= MOVEMENT COSTS =======================
+const float costF1 = 1.2, costF2 = 2.1, costF3 = 3.0, costF4 = 4.0, costTurn90 = 0.6, costTurn180 = 1.1;
 
 // ======================= MODE CONTROL =======================
 enum Mode
@@ -229,7 +234,7 @@ void moveForward(long forwardCount) // 0 - Normal
     adjLeft = FORWARD_SPEED * forwardSpeedFactor;
     adjRight = FORWARD_SPEED * forwardSpeedFactor;
 
-    // --- Wall following corrections ---
+    // Wall following corrections
     if (distFront < frontThreshold)
     {
       break;
@@ -237,21 +242,21 @@ void moveForward(long forwardCount) // 0 - Normal
     else if (distLeft < sideThreshold && distRight < sideThreshold)
     {
       long diff = distLeft - distRight;
-      int correction = constrain(diff * correctionGainTwoWall, -30, 30);
+      int correction = constrain(diff * twoWallCorrectionGain, -30, 30);
       adjLeft -= correction;
       adjRight += correction;
     }
     else if (distLeft < sideThreshold && distRight >= sideThreshold)
     {
       long error = distLeft - targetWallDist;
-      int correction = constrain(error * correctionGain, -30, 30);
+      int correction = constrain(error * oneWallCorrectionGain, -30, 30);
       adjLeft -= correction;
       adjRight += correction;
     }
     else if (distRight < sideThreshold && distLeft >= sideThreshold)
     {
       long error = distRight - targetWallDist;
-      int correction = constrain(error * correctionGain, -30, 30);
+      int correction = constrain(error * oneWallCorrectionGain, -30, 30);
       adjLeft += correction;
       adjRight -= correction;
     }
@@ -264,7 +269,7 @@ void moveForward(long forwardCount) // 0 - Normal
 
     setMotorSpeeds(adjLeft, adjRight);
 
-    // --- Check distance moved ---
+    // Check distance moved
     noInterrupts();
     long rightMoved = abs(encoderCountRight - startRight);
     long leftMoved = abs(encoderCountLeft - startLeft);
@@ -316,7 +321,6 @@ void turnLeft90()
 {
   int speed = TURN_SPEED * turnSpeedFactor;
 
-  // --- Step 1: Perform the right turn ---
   noInterrupts();
   long startLeft = encoderCountLeft;
   long startRight = encoderCountRight;
@@ -362,7 +366,7 @@ void turnAround()
     interrupts();
     if (solvingMode)
     {
-      if (leftMoved + rightMoved >= countsFor90Deg * 4 + solvingModeTurnCorrection * 2)
+      if (leftMoved + rightMoved >= countsFor90Deg * 4 + solvingModeTurnAroundCorrection)
         break;
     }
     else
@@ -396,7 +400,7 @@ int openCount;
 String path9 = "";
 String path4 = "";
 
-// ---------- Helper Functions ----------
+// Helper Functions
 float heuristic(int x, int y, int gx, int gy)
 {
   return abs(gx - x) + abs(gy - y);
@@ -447,7 +451,7 @@ bool wallPresent(int *maze, int rows, int cols, int x, int y, int dirBit)
   return (maze[x * cols + y] & dirBit);
 }
 
-// ---------- A* Pathfinder ----------
+// A* Pathfinder
 String findPath(int *maze, int rows, int cols,
                 int startX, int startY, int goalX, int goalY, int startDir)
 {
@@ -589,7 +593,6 @@ String findPathFromUint8(uint8_t *map, int rows, int cols,
                          int startX, int startY, int goalX, int goalY, int startDir)
 {
   // allocate on stack if small
-  int tmp = 0; // placeholder to avoid unused warning in some toolchains
   int total = rows * cols;
   int *buf = (int *)malloc(sizeof(int) * total);
   if (!buf)
@@ -601,24 +604,6 @@ String findPathFromUint8(uint8_t *map, int rows, int cols,
   free(buf);
   return res;
 }
-
-// West 1 North 2 East 4 South 8
-int maze9[9][9] = {
-    {0xA, 0x6, 0x3, 0x6, 0x3, 0xA, 0x2, 0xA, 0xE},
-    {0x7, 0x9, 0x4, 0x5, 0x5, 0x3, 0x0, 0xA, 0xE},
-    {0x5, 0x3, 0xC, 0x1, 0xC, 0x5, 0x9, 0xA, 0x6},
-    {0x1, 0x4, 0x3, 0xC, 0x7, 0x9, 0x2, 0x6, 0xD},
-    {0xD, 0x5, 0x9, 0xA, 0x0, 0xA, 0x4, 0x9, 0xE},
-    {0x3, 0x4, 0xB, 0x6, 0x1, 0xE, 0x1, 0xA, 0x6},
-    {0x5, 0x9, 0x6, 0x1, 0x8, 0x6, 0x5, 0x3, 0x4},
-    {0x9, 0x6, 0x9, 0xC, 0x3, 0x4, 0x5, 0x5, 0xD},
-    {0xB, 0xC, 0xB, 0xA, 0xC, 0x9, 0xC, 0x9, 0xE}};
-
-int maze4[4][4] = {
-    {0x5, 0x3, 0xA, 0x6},
-    {0x9, 0x4, 0xB, 0x4},
-    {0x3, 0x4, 0x7, 0x5},
-    {0xD, 0x9, 0x8, 0xC}};
 
 ///////////////////////////////////////////////////////////////////////////////////////////////////
 
@@ -679,7 +664,7 @@ bool loadMap4FromEEPROM(uint8_t *map4, int rows4, int cols4)
   uint16_t magic = EEPROM.read(EEPROM_MAGIC_ADDR) | (EEPROM.read(EEPROM_MAGIC_ADDR + 1) << 8);
   if (magic != EEPROM_MAGIC)
     return false;
-  // optional: check version
+
   int addr = EEPROM_MAP4_ADDR;
   for (int r = 0; r < rows4; r++)
     for (int c = 0; c < cols4; c++)
@@ -692,7 +677,7 @@ bool loadMap9FromEEPROM(uint8_t *map9, int rows9, int cols9, int var1, int var2)
   uint16_t magic = EEPROM.read(EEPROM_MAGIC_ADDR) | (EEPROM.read(EEPROM_MAGIC_ADDR + 1) << 8);
   if (magic != EEPROM_MAGIC)
     return false;
-  // optional: check version
+
   int addr = EEPROM_MAP9_ADDR;
   for (int r = 0; r < rows9; r++)
     for (int c = 0; c < cols9; c++)
@@ -829,7 +814,7 @@ void exploreMazeGeneric(int rows, int cols, int startX, int startY, int startDir
     for (int i = 0; i < 8; i++)
     {
       sensors[i] = digitalRead(IR_PINS[i]);
-      if (sensors[i] == 1) // Assuming 1 means "on the line" (black)
+      if (sensors[i] == 1)
       {
         sum += i * 100;
         blackCount++;
@@ -844,8 +829,7 @@ void exploreMazeGeneric(int rows, int cols, int startX, int startY, int startDir
     }
     Serial.println();
 
-    // --- LINE LOST (No line/All white) ---
-    if (blackCount == 0 && !(curX == 0 && curY == 0) && endPointR == -1)
+    if (blackCount == 0 && (curX > 0 || curY > 0) && endPointR == -1)
     {
       endPointR = curX;
       endPointC = curY;
@@ -935,7 +919,7 @@ void lineFollowerLoop()
     }
   }
 
-  // --- LINE LOST (No line/All white) ---
+  // LINE LOST HANDLING
   if (blackCount == 0)
   {
     stopMotorsSudden();
@@ -957,7 +941,7 @@ void lineFollowerLoop()
     return;
   }
 
-  // --- NORMAL PID LINE FOLLOWING ---
+  // PID LINE FOLLOWING
   int position = sum / blackCount;
   error = position - 350; // Error is displacement from center (350)
 
@@ -978,7 +962,7 @@ void lineFollowerLoop()
 
   setMotorSpeeds(leftSpeed, rightSpeed);
 
-  // --- Printing Debug Info ---
+  // Printing Debug Info
   if (millis() - lastPrintTime >= printInterval)
   {
     Serial.print("IR: ");
@@ -1025,15 +1009,13 @@ void mazeSolverLoop()
     if (moveCount == path4.length())
     {
       moveForward(0); // Moving forward
-      solvingMode = false;
       // currentMode = STOPPING;
     }
     else
     {
-      solvingMode = false;
-      // moveForward(oneCellCount);
       currentMode = STOPPING;
     }
+    solvingMode = false;
     return;
   }
   char move = moveOrder[moveIteration];
@@ -1042,14 +1024,7 @@ void mazeSolverLoop()
     if (distFront > frontThreshold)
     {
       Serial.println("Moving Forward by 1 Cell");
-      if (solvingMode)
-      {
-        moveForward(oneCellCount + solvingModeForwardCorrection);
-      }
-      else
-      {
-        moveForward(oneCellCount);
-      }
+      moveForward(oneCellCount + solvingModeForwardCorrection);
     }
     moveIteration++;
   }
@@ -1110,13 +1085,12 @@ void solveMaze4()
       Serial.println();
     }
     solvingMode = true;
-    path4 = findPathFromUint8(&exploredMaze4[0][0], 4, 4, 2, 2, 0, 0, 3);
+    path4 = findPathFromUint8(&exploredMaze4[0][0], 4, 4, startRow, startCol, 0, 0, startDirection);
   }
   else
   {
-    // Explore 4x4 (East 0 ; North 1 ; West 2 ; South 3)
     Serial.println("Exploring 4x4 maze...");
-    exploreMazeGeneric(4, 4, 2, 2, 1, &exploredMaze4[0][0]);
+    exploreMazeGeneric(4, 4, startRow, startCol, startDirection, &exploredMaze4[0][0]);
     Serial.println("Explored 4x4 map (hex):");
     for (int i = 0; i < 4; i++)
     {
@@ -1161,12 +1135,12 @@ void solveMaze9()
     Serial.print(endPointC);
     Serial.println(")");
     solvingMode = true;
+    // East 0 ; North 1 ; West 2 ; South 3
     path9 = findPathFromUint8(&exploredMaze9[0][0], 9, 9, 0, 0, 8, 8, 0);
     // path9 = findPathFromUint8(&exploredMaze9[0][0], 9, 9, 0, 0, endPointR, endPointC, 0);
   }
   else
   {
-    // Explore 9X9 (East 0 ; North 1 ; West 2 ; South 3)
     Serial.println("Exploring 9x9 maze...");
     exploreMazeGeneric(9, 9, 0, 0, 0, &exploredMaze9[0][0]);
     Serial.println("Explored 9x9 map (hex):");
