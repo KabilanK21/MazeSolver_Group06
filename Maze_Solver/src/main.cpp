@@ -14,8 +14,8 @@ float Kd = 0.13;
 #define FORWARD_SPEED 120
 #define TURN_SPEED 120
 #define LINE_SPEED 120
-float forwardSpeedFactor = 0.6;
-float turnSpeedFactor = 0.4;
+float forwardSpeedFactor = 0.8;
+float turnSpeedFactor = 0.6;
 float lineSpeedFactor = 0.7;
 int lastLeftSpeed = 0;
 int lastRightSpeed = 0;
@@ -51,16 +51,20 @@ volatile long encoderCountRight = 0;
 #define ECHO_RIGHT 47
 
 // ======================= MAZE NAVIGATION CONFIG =======================
-int frontThreshold = 10;
+int frontThreshold = 12;
 int sideThreshold = 15;
-float correctionGain = 3.5; // Forward Movement Left & Right Adjustment
-long countsFor90Deg = 127;
-int targetWallDist = 6;
-long oneCellCount = 260;
+float correctionGain = 5; // Forward Movement Left & Right Adjustment
+long countsFor90Deg = 127 - 12;
+int targetWallDist = 7;
+long oneCellCount = 260 - 10;
+long solvingModeTurnCorrection = 40;
+long solvingModeForwardCorrection = 50;
 int sensorCorrection = 97;
 String moveOrder = "";
 int moveCount = 0;
 int moveIteration = 0;
+bool solvingMode = false;
+int step = 12;
 
 // ======================= LINE FOLLOWING CONFIG =======================
 
@@ -153,7 +157,6 @@ void setMotorSpeeds(int leftSpeed, int rightSpeed)
 
 void stopMotors()
 {
-  int step = 7;
   for (int s = max(lastLeftSpeed, lastRightSpeed); s > 0; s -= step)
   {
     setMotorSpeeds(s, s);
@@ -291,8 +294,16 @@ void turnRight90()
     long rightMoved = abs(encoderCountRight - startRight);
     interrupts();
 
-    if (leftMoved + rightMoved >= countsFor90Deg * 2)
-      break;
+    if (solvingMode)
+    {
+      if (leftMoved + rightMoved >= countsFor90Deg * 2 - solvingModeTurnCorrection)
+        break;
+    }
+    else
+    {
+      if (leftMoved + rightMoved >= countsFor90Deg * 2)
+        break;
+    }
   }
 }
 
@@ -315,8 +326,16 @@ void turnLeft90()
     long rightMoved = abs(encoderCountRight - startRight);
     interrupts();
 
-    if (leftMoved + rightMoved >= countsFor90Deg * 2)
-      break;
+    if (solvingMode)
+    {
+      if (leftMoved + rightMoved >= countsFor90Deg * 2 - solvingModeTurnCorrection)
+        break;
+    }
+    else
+    {
+      if (leftMoved + rightMoved >= countsFor90Deg * 2)
+        break;
+    }
   }
 }
 
@@ -336,8 +355,16 @@ void turnAround()
     long leftMoved = abs(encoderCountLeft - startLeft);
     long rightMoved = abs(encoderCountRight - startRight);
     interrupts();
-    if (leftMoved + rightMoved >= countsFor90Deg * 4)
-      break;
+    if (solvingMode)
+    {
+      if (leftMoved + rightMoved >= countsFor90Deg * 4 - solvingModeTurnCorrection * 2)
+        break;
+    }
+    else
+    {
+      if (leftMoved + rightMoved >= countsFor90Deg * 4)
+        break;
+    }
   }
 }
 
@@ -988,10 +1015,12 @@ void mazeSolverLoop()
     if (moveCount == path4.length())
     {
       moveForward(0); // Moving forward
+      solvingMode = false;
       currentMode = STOPPING;
     }
     else
     {
+      solvingMode = false;
       // moveForward(oneCellCount);
       currentMode = STOPPING;
     }
@@ -1003,7 +1032,14 @@ void mazeSolverLoop()
     if (distFront > frontThreshold)
     {
       Serial.println("Moving Forward by 1 Cell");
-      moveForward(oneCellCount);
+      if (solvingMode)
+      {
+        moveForward(oneCellCount + solvingModeForwardCorrection);
+      }
+      else
+      {
+        moveForward(oneCellCount);
+      }
     }
     moveIteration++;
   }
@@ -1063,13 +1099,14 @@ void solveMaze4()
       }
       Serial.println();
     }
+    solvingMode = true;
     path4 = findPathFromUint8(&exploredMaze4[0][0], 4, 4, 2, 2, 0, 0, 3);
   }
   else
   {
     // Explore 4x4 (East 0 ; North 1 ; West 2 ; South 3)
     Serial.println("Exploring 4x4 maze...");
-    exploreMazeGeneric(4, 4, 2, 2, 0, &exploredMaze4[0][0]);
+    exploreMazeGeneric(4, 4, 2, 2, 1, &exploredMaze4[0][0]);
     Serial.println("Explored 4x4 map (hex):");
     for (int i = 0; i < 4; i++)
     {
@@ -1082,6 +1119,7 @@ void solveMaze4()
       Serial.println();
     }
     saveMap4ToEEPROM(&exploredMaze4[0][0], 4, 4);
+    solvingMode = true;
     // path4 = findPathFromUint8(&exploredMaze4[0][0], 4, 4, lastR, lastC, endPointR, endPointC, lastDir);
     path4 = findPathFromUint8(&exploredMaze4[0][0], 4, 4, lastR, lastC, 0, 0, lastDir);
   }
@@ -1112,8 +1150,9 @@ void solveMaze9()
     Serial.print(",");
     Serial.print(endPointC);
     Serial.println(")");
-    // path9 = findPathFromUint8(&exploredMaze9[0][0], 9, 9, 0, 0, 8, 8, 0);
-    path9 = findPathFromUint8(&exploredMaze9[0][0], 9, 9, 0, 0, endPointR, endPointC, 0);
+    solvingMode = true;
+    path9 = findPathFromUint8(&exploredMaze9[0][0], 9, 9, 0, 0, 8, 8, 0);
+    // path9 = findPathFromUint8(&exploredMaze9[0][0], 9, 9, 0, 0, endPointR, endPointC, 0);
   }
   else
   {
@@ -1132,8 +1171,9 @@ void solveMaze9()
       Serial.println();
     }
     saveMap9ToEEPROM(&exploredMaze9[0][0], 9, 9);
-    path9 = findPathFromUint8(&exploredMaze9[0][0], 9, 9, lastR, lastC, endPointR, endPointC, lastDir);
-    // path9 = findPathFromUint8(&exploredMaze9[0][0], 9, 9, lastR, lastC, 8, 8, lastDir);
+    solvingMode = true;
+    // path9 = findPathFromUint8(&exploredMaze9[0][0], 9, 9, lastR, lastC, endPointR, endPointC, lastDir);
+    path9 = findPathFromUint8(&exploredMaze9[0][0], 9, 9, lastR, lastC, 8, 8, lastDir);
   }
   Serial.print("9x9 Discovered Path: ");
   Serial.println(path9);
