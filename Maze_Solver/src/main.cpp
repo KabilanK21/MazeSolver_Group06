@@ -51,20 +51,25 @@ volatile long encoderCountRight = 0;
 #define ECHO_RIGHT 47
 
 // ======================= MAZE NAVIGATION CONFIG =======================
-int frontThreshold = 12;
+int frontThreshold = 10;
 int sideThreshold = 15;
-float correctionGain = 5; // Forward Movement Left & Right Adjustment
-long countsFor90Deg = 127 - 12;
-int targetWallDist = 7;
-long oneCellCount = 260 - 10;
-long solvingModeTurnCorrection = 40;
-long solvingModeForwardCorrection = 50;
-int sensorCorrection = 97;
+float correctionGainTwoWall = 4.3;
+float correctionGain = 5.5; // Forward Movement Left & Right Adjustment
+long countsFor90Deg = 127 - 18;
+int targetWallDist = 6;
+long oneCellCount = 235;
+long solvingModeTurnCorrection = -57;
+long exploringModeTurnAroundCorrection = 50;
+long solvingModeForwardCorrection = -40;
+long twoCellCountCorrection = 27;
+
+int sensorCorrection = 98;
 String moveOrder = "";
 int moveCount = 0;
 int moveIteration = 0;
 bool solvingMode = false;
 int step = 12;
+bool lastActionForward = false;
 
 // ======================= LINE FOLLOWING CONFIG =======================
 
@@ -232,7 +237,7 @@ void moveForward(long forwardCount) // 0 - Normal
     else if (distLeft < sideThreshold && distRight < sideThreshold)
     {
       long diff = distLeft - distRight;
-      int correction = constrain(diff * correctionGain, -30, 30);
+      int correction = constrain(diff * correctionGainTwoWall, -30, 30);
       adjLeft -= correction;
       adjRight += correction;
     }
@@ -296,7 +301,7 @@ void turnRight90()
 
     if (solvingMode)
     {
-      if (leftMoved + rightMoved >= countsFor90Deg * 2 - solvingModeTurnCorrection)
+      if (leftMoved + rightMoved >= countsFor90Deg * 2 + solvingModeTurnCorrection)
         break;
     }
     else
@@ -328,7 +333,7 @@ void turnLeft90()
 
     if (solvingMode)
     {
-      if (leftMoved + rightMoved >= countsFor90Deg * 2 - solvingModeTurnCorrection)
+      if (leftMoved + rightMoved >= countsFor90Deg * 2 + solvingModeTurnCorrection)
         break;
     }
     else
@@ -357,12 +362,12 @@ void turnAround()
     interrupts();
     if (solvingMode)
     {
-      if (leftMoved + rightMoved >= countsFor90Deg * 4 - solvingModeTurnCorrection * 2)
+      if (leftMoved + rightMoved >= countsFor90Deg * 4 + solvingModeTurnCorrection * 2)
         break;
     }
     else
     {
-      if (leftMoved + rightMoved >= countsFor90Deg * 4)
+      if (leftMoved + rightMoved >= countsFor90Deg * 4 + exploringModeTurnAroundCorrection)
         break;
     }
   }
@@ -770,15 +775,20 @@ void turnToDirGeneric(int &curDir, int targetDir)
   }
   else
     turnAround();
+  lastActionForward = false;
   curDir = targetDir;
 }
 
 // Move forward one cell using existing movement and update pos
 void moveOneCellForwardUpdatePoseGeneric(int &curX, int &curY, int curDir)
 {
-  moveForward(oneCellCount);
+  if (lastActionForward)
+    moveForward(oneCellCount + twoCellCountCorrection);
+  else
+    moveForward(oneCellCount);
   curX += DX[curDir];
   curY += DY[curDir];
+  lastActionForward = true;
 }
 
 // Generic DFS exploration for small mazes (rows x cols), fills 'explored' flattened array
@@ -1016,7 +1026,7 @@ void mazeSolverLoop()
     {
       moveForward(0); // Moving forward
       solvingMode = false;
-      currentMode = STOPPING;
+      // currentMode = STOPPING;
     }
     else
     {
@@ -1218,9 +1228,9 @@ void setup()
 
   eraseMapsInvalidateHeader();
 
-  solveMaze4();
+  solveMaze9();
 
-  moveOrder = path4;
+  moveOrder = path9;
   moveCount = moveOrder.length();
 }
 
@@ -1239,10 +1249,11 @@ void loop()
   else if (distLeft < sideThreshold && distRight < sideThreshold && currentMode == LINE_FOLLOWER)
   {
     Serial.println("9x9 Maze Solving Started");
-    solveMaze9();
     moveOrder = path9;
     moveCount = moveOrder.length();
     moveIteration = 0;
+    moveForward(oneCellCount / 2);
+    solveMaze9();
     currentMode = MAZE_SOLVER;
   }
 
