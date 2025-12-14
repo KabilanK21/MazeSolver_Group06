@@ -81,7 +81,7 @@ long exploringModeTurnAroundCorrection = 50;
 long twoCellCountCorrection = 27;
 
 // ======================= FLAGS =======================
-bool eraseEEPROM = false;
+bool eraseEEPROM = true;
 
 bool solvingMode = false;
 bool lastActionForwardExploring = false;
@@ -1308,6 +1308,7 @@ void loop()
   else if (distLeft < sideThreshold && distRight < sideThreshold && currentMode == LINE_FOLLOWER)
   {
     Serial.println("9x9 Maze Solving Started");
+    eraseMapsInvalidateHeader(); // Comment the function to erase the 9x9 maze map saved in EEPROM
     moveForward(oneCellCount / 2);
     solveMaze9();
     currentMode = MAZE_SOLVER;
