@@ -18,7 +18,7 @@ float error = 0, lastError = 0, integral = 0;
 #define LINE_SPEED 120
 
 float forwardSpeedFactor = 0.8;
-float turnSpeedFactor = 0.6;
+float turnSpeedFactor = 0.4;
 float lineSpeedFactor = 0.7;
 int lastLeftSpeed = 0;
 int lastRightSpeed = 0;
@@ -56,31 +56,36 @@ int startCol = 2;
 int startDirection = 3; // East 0 ; North 1 ; West 2 ; South 3
 
 // ======================= THRESHOLD VALUES =======================
-int frontThreshold = 10;
+int frontThreshold = 11;
 int sideThreshold = 15;
-int targetWallDist = 6;
+int targetWallDist = 5.8;
 int step = 12;
 
 // ======================= WALL ADJUSTMENT GAINS =======================
-float twoWallCorrectionGain = 4.3;
-float oneWallCorrectionGain = 5.5;
+float twoWallCorrectionGainExploring = 4.8;
+float oneWallCorrectionGainExploring = 5.2;
+float twoWallCorrectionGainSolving = 4.5;
+float oneWallCorrectionGainSolving = 4.5;
 
 // ======================= ENCORDER VALUES =======================
 long countsFor90Deg = 127 - 18;
-long oneCellCount = 235;
+long oneCellCount = 236;
 
 // ======================= CORRECTION VALUES =======================
 int sensorCorrection = 98;
 
-long solvingModeTurnCorrection = -57;
-long solvingModeTurnAroundCorrection = 120;
-long solvingModeForwardCorrection = -40;
+long solvingModeTurnCorrection = -65;
+long solvingModeTurnAroundCorrection = 0;
+long solvingModeForwardCorrection = -10;
 long exploringModeTurnAroundCorrection = 50;
 long twoCellCountCorrection = 27;
 
 // ======================= FLAGS =======================
+bool eraseEEPROM = false;
+
 bool solvingMode = false;
-bool lastActionForward = false;
+bool lastActionForwardExploring = false;
+bool lastActionForwardSolvinging = false;
 
 bool loadedMap4 = false;
 bool loadedMap9 = false;
@@ -109,7 +114,7 @@ const int DY[4] = {1, 0, -1, 0};
 const int DIRS[4] = {4, 2, 1, 8}; // bitmask walls
 
 // ======================= MOVEMENT COSTS =======================
-const float costF1 = 1.2, costF2 = 2.1, costF3 = 3.0, costF4 = 4.0, costTurn90 = 0.6, costTurn180 = 1.1;
+const float costF1 = 1, costF2 = 1.8, costF3 = 2.5, costF4 = 3.1, costTurn90 = 1, costTurn180 = 1.8;
 
 // ======================= MODE CONTROL =======================
 enum Mode
@@ -130,6 +135,58 @@ void readEncoderRight()
 {
   int b = digitalRead(ENCO_B_R);
   encoderCountRight += (b == HIGH) ? 1 : -1;
+}
+
+void explore4VarChange()
+{
+  frontThreshold = 11;
+  targetWallDist = 5.8;
+  twoWallCorrectionGainExploring = 4;
+  oneWallCorrectionGainExploring = 4;
+  countsFor90Deg = 135;
+  oneCellCount = 236;
+  exploringModeTurnAroundCorrection = 0;
+  twoCellCountCorrection = 30;
+}
+
+void solve4VarChange()
+{
+  frontThreshold = 12;
+  targetWallDist = 5.8;
+  oneWallCorrectionGainSolving = 3.4;
+  twoWallCorrectionGainSolving = 3.1;
+  countsFor90Deg = 145;
+  oneCellCount = 236;
+  solvingModeTurnCorrection = -65;
+  solvingModeTurnAroundCorrection = -75;
+  solvingModeForwardCorrection = -25;
+  twoCellCountCorrection = 30;
+}
+
+void explore9VarChange()
+{
+  frontThreshold = 11;
+  targetWallDist = 6;
+  twoWallCorrectionGainExploring = 3.8;
+  oneWallCorrectionGainExploring = 5;
+  countsFor90Deg = 125;
+  oneCellCount = 235;
+  exploringModeTurnAroundCorrection = -10;
+  twoCellCountCorrection = 27;
+}
+
+void solve9VarChange()
+{
+  frontThreshold = 11;
+  targetWallDist = 5.8;
+  oneWallCorrectionGainSolving = 3.4;
+  twoWallCorrectionGainSolving = 3.1;
+  countsFor90Deg = 138;
+  oneCellCount = 236;
+  solvingModeTurnCorrection = -65;
+  solvingModeTurnAroundCorrection = -75;
+  solvingModeForwardCorrection = -25;
+  twoCellCountCorrection = 30;
 }
 
 // ======================= MOTOR CONTROL =======================
@@ -242,21 +299,33 @@ void moveForward(long forwardCount) // 0 - Normal
     else if (distLeft < sideThreshold && distRight < sideThreshold)
     {
       long diff = distLeft - distRight;
-      int correction = constrain(diff * twoWallCorrectionGain, -30, 30);
+      int correction;
+      if (solvingMode)
+        correction = constrain(diff * twoWallCorrectionGainSolving, -30, 30);
+      else
+        correction = constrain(diff * twoWallCorrectionGainExploring, -30, 30);
       adjLeft -= correction;
       adjRight += correction;
     }
     else if (distLeft < sideThreshold && distRight >= sideThreshold)
     {
       long error = distLeft - targetWallDist;
-      int correction = constrain(error * oneWallCorrectionGain, -30, 30);
+      int correction;
+      if (solvingMode)
+        correction = constrain(error * oneWallCorrectionGainSolving, -30, 30);
+      else
+        correction = constrain(error * oneWallCorrectionGainExploring, -30, 30);
       adjLeft -= correction;
       adjRight += correction;
     }
     else if (distRight < sideThreshold && distLeft >= sideThreshold)
     {
       long error = distRight - targetWallDist;
-      int correction = constrain(error * oneWallCorrectionGain, -30, 30);
+      int correction;
+      if (solvingMode)
+        correction = constrain(error * oneWallCorrectionGainSolving, -30, 30);
+      else
+        correction = constrain(error * oneWallCorrectionGainExploring, -30, 30);
       adjLeft += correction;
       adjRight -= correction;
     }
@@ -760,20 +829,20 @@ void turnToDirGeneric(int &curDir, int targetDir)
   }
   else
     turnAround();
-  lastActionForward = false;
+  lastActionForwardExploring = false;
   curDir = targetDir;
 }
 
 // Move forward one cell using existing movement and update pos
 void moveOneCellForwardUpdatePoseGeneric(int &curX, int &curY, int curDir)
 {
-  if (lastActionForward)
+  if (lastActionForwardExploring)
     moveForward(oneCellCount + twoCellCountCorrection);
   else
     moveForward(oneCellCount);
   curX += DX[curDir];
   curY += DY[curDir];
-  lastActionForward = true;
+  lastActionForwardExploring = true;
 }
 
 // Generic DFS exploration for small mazes (rows x cols), fills 'explored' flattened array
@@ -1024,7 +1093,11 @@ void mazeSolverLoop()
     if (distFront > frontThreshold)
     {
       Serial.println("Moving Forward by 1 Cell");
-      moveForward(oneCellCount + solvingModeForwardCorrection);
+      if (lastActionForwardSolvinging)
+        moveForward(oneCellCount + solvingModeForwardCorrection + twoCellCountCorrection);
+      else
+        moveForward(oneCellCount + solvingModeForwardCorrection);
+      lastActionForwardSolvinging = true;
     }
     moveIteration++;
   }
@@ -1033,13 +1106,15 @@ void mazeSolverLoop()
     if (distLeft > sideThreshold)
     {
       Serial.println("Turning Left");
+      lastActionForwardSolvinging = false;
       stopMotors();
       turnLeft90();
       moveIteration++;
     }
     else
     {
-      moveForward(0);
+      currentMode = STOPPING;
+      // moveForward(0);
     }
   }
   else if (move == 'R')
@@ -1047,18 +1122,21 @@ void mazeSolverLoop()
     if (distRight > sideThreshold)
     {
       Serial.println("Turning Right");
+      lastActionForwardSolvinging = false;
       stopMotors();
       turnRight90();
       moveIteration++;
     }
     else
     {
-      moveForward(0);
+      currentMode = STOPPING;
+      // moveForward(0);
     }
   }
   else if (move == 'U')
   {
     Serial.println("Turning Around");
+    lastActionForwardSolvinging = false;
     turnAround();
     moveIteration++;
   }
@@ -1085,11 +1163,13 @@ void solveMaze4()
       Serial.println();
     }
     solvingMode = true;
+    solve4VarChange();
     path4 = findPathFromUint8(&exploredMaze4[0][0], 4, 4, startRow, startCol, 0, 0, startDirection);
   }
   else
   {
     Serial.println("Exploring 4x4 maze...");
+    explore4VarChange();
     exploreMazeGeneric(4, 4, startRow, startCol, startDirection, &exploredMaze4[0][0]);
     Serial.println("Explored 4x4 map (hex):");
     for (int i = 0; i < 4; i++)
@@ -1104,6 +1184,7 @@ void solveMaze4()
     }
     saveMap4ToEEPROM(&exploredMaze4[0][0], 4, 4);
     solvingMode = true;
+    solve4VarChange();
     // path4 = findPathFromUint8(&exploredMaze4[0][0], 4, 4, lastR, lastC, endPointR, endPointC, lastDir);
     path4 = findPathFromUint8(&exploredMaze4[0][0], 4, 4, lastR, lastC, 0, 0, lastDir);
   }
@@ -1135,13 +1216,15 @@ void solveMaze9()
     Serial.print(endPointC);
     Serial.println(")");
     solvingMode = true;
+    solve9VarChange();
     // East 0 ; North 1 ; West 2 ; South 3
-    path9 = findPathFromUint8(&exploredMaze9[0][0], 9, 9, 0, 0, 8, 8, 0);
-    // path9 = findPathFromUint8(&exploredMaze9[0][0], 9, 9, 0, 0, endPointR, endPointC, 0);
+    // path9 = findPathFromUint8(&exploredMaze9[0][0], 9, 9, 0, 0, 5, 2, 0);
+    path9 = findPathFromUint8(&exploredMaze9[0][0], 9, 9, 0, 0, endPointR, endPointC, 0);
   }
   else
   {
     Serial.println("Exploring 9x9 maze...");
+    explore9VarChange();
     exploreMazeGeneric(9, 9, 0, 0, 0, &exploredMaze9[0][0]);
     Serial.println("Explored 9x9 map (hex):");
     for (int i = 0; i < 9; i++)
@@ -1156,8 +1239,9 @@ void solveMaze9()
     }
     saveMap9ToEEPROM(&exploredMaze9[0][0], 9, 9);
     solvingMode = true;
-    // path9 = findPathFromUint8(&exploredMaze9[0][0], 9, 9, lastR, lastC, endPointR, endPointC, lastDir);
-    path9 = findPathFromUint8(&exploredMaze9[0][0], 9, 9, lastR, lastC, 8, 8, lastDir);
+    solve9VarChange();
+    path9 = findPathFromUint8(&exploredMaze9[0][0], 9, 9, lastR, lastC, endPointR, endPointC, lastDir);
+    //path9 = findPathFromUint8(&exploredMaze9[0][0], 9, 9, lastR, lastC, 8, 8, lastDir);
   }
   Serial.print("9x9 Discovered Path: ");
   Serial.println(path9);
@@ -1200,11 +1284,12 @@ void setup()
   pinMode(TRIG_RIGHT, OUTPUT);
   pinMode(ECHO_RIGHT, INPUT);
 
-  eraseMapsInvalidateHeader();
+  if (eraseEEPROM)
+    eraseMapsInvalidateHeader();
 
-  solveMaze9();
+  solveMaze4();
 
-  moveOrder = path9;
+  moveOrder = path4;
   moveCount = moveOrder.length();
 }
 
@@ -1223,12 +1308,12 @@ void loop()
   else if (distLeft < sideThreshold && distRight < sideThreshold && currentMode == LINE_FOLLOWER)
   {
     Serial.println("9x9 Maze Solving Started");
-    moveOrder = path9;
-    moveCount = moveOrder.length();
-    moveIteration = 0;
     moveForward(oneCellCount / 2);
     solveMaze9();
     currentMode = MAZE_SOLVER;
+    moveOrder = path9;
+    moveCount = moveOrder.length();
+    moveIteration = 0;
   }
 
   if (currentMode == LINE_FOLLOWER)
