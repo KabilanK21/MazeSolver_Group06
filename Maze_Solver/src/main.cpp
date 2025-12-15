@@ -6,9 +6,9 @@ const int IR_PINS[8] = {41, 37, 36, 33, 32, 31, 30, 28};
 const int IR_ENABLE = 40;
 
 // ======================= PID CONTROLS =======================
-float Kp = 0.27;
+float Kp = 0.22; // 0.27
 float Ki = 0.0;
-float Kd = 0.13;
+float Kd = 0.13; // 0.13
 
 float error = 0, lastError = 0, integral = 0;
 
@@ -19,7 +19,7 @@ float error = 0, lastError = 0, integral = 0;
 
 float forwardSpeedFactor = 0.8;
 float turnSpeedFactor = 0.4;
-float lineSpeedFactor = 0.7;
+float lineSpeedFactor = 0.6; // 0.7
 int lastLeftSpeed = 0;
 int lastRightSpeed = 0;
 
@@ -81,7 +81,7 @@ long exploringModeTurnAroundCorrection = 50;
 long twoCellCountCorrection = 27;
 
 // ======================= FLAGS =======================
-bool eraseEEPROM = true;
+bool eraseEEPROM = false;
 
 bool solvingMode = false;
 bool lastActionForwardExploring = false;
@@ -169,24 +169,24 @@ void explore9VarChange()
   targetWallDist = 6;
   twoWallCorrectionGainExploring = 3.8;
   oneWallCorrectionGainExploring = 5;
-  countsFor90Deg = 125;
+  countsFor90Deg = 115;
   oneCellCount = 235;
-  exploringModeTurnAroundCorrection = -10;
+  exploringModeTurnAroundCorrection = 50;
   twoCellCountCorrection = 27;
 }
 
 void solve9VarChange()
 {
-  frontThreshold = 11;
+  frontThreshold = 10;
   targetWallDist = 5.8;
-  oneWallCorrectionGainSolving = 3.4;
-  twoWallCorrectionGainSolving = 3.1;
+  oneWallCorrectionGainSolving = 3.2;
+  twoWallCorrectionGainSolving = 5;
   countsFor90Deg = 138;
-  oneCellCount = 236;
+  oneCellCount = 245;
   solvingModeTurnCorrection = -65;
   solvingModeTurnAroundCorrection = -75;
   solvingModeForwardCorrection = -25;
-  twoCellCountCorrection = 30;
+  twoCellCountCorrection = 33;
 }
 
 // ======================= MOTOR CONTROL =======================
@@ -244,7 +244,7 @@ void stopMotorsSudden()
   // Step 2: Small reverse pulse to brake
   int reverseSpeed = -50;
   setMotorSpeeds(reverseSpeed, reverseSpeed);
-  delay(400);
+  delay(300); // 400
 
   setMotorSpeeds(0, 0);
 }
@@ -719,13 +719,8 @@ void saveMap9ToEEPROM(uint8_t *map9, int rows9, int cols9)
 
 void saveVariablesToEEPROM(uint16_t var1, uint16_t var2)
 {
-  // Save var1 (16-bit)
-  EEPROM.update(EEPROM_VAR1_ADDR, (uint8_t)(var1 & 0xFF));
-  EEPROM.update(EEPROM_VAR1_ADDR + 1, (uint8_t)((var1 >> 8) & 0xFF));
-
-  // Save var2 (16-bit)
-  EEPROM.update(EEPROM_VAR2_ADDR, (uint8_t)(var2 & 0xFF));
-  EEPROM.update(EEPROM_VAR2_ADDR + 1, (uint8_t)((var2 >> 8) & 0xFF));
+  EEPROM.put(EEPROM_VAR1_ADDR, var1);
+  EEPROM.put(EEPROM_VAR2_ADDR, var2);
 }
 
 bool loadMap4FromEEPROM(uint8_t *map4, int rows4, int cols4)
@@ -756,10 +751,24 @@ bool loadMap9FromEEPROM(uint8_t *map9, int rows9, int cols9, int var1, int var2)
   return true;
 }
 
+bool isAllZero(const uint8_t *map, int rows, int cols)
+{
+  int total = rows * cols;
+
+  for (int i = 0; i < total; i++)
+  {
+    if (map[i] != 0x00)
+      return false;
+  }
+  return true;
+}
+
 void loadVarsFromEEPROM(int var1, int var2)
 {
   var1 = EEPROM.read(EEPROM_VAR1_ADDR);
   var2 = EEPROM.read(EEPROM_VAR2_ADDR);
+  endPointR = var1;
+  endPointC = var2;
 }
 
 // Invalidate saved maps by clearing the magic header (fast, minimal EEPROM writes)
@@ -767,6 +776,18 @@ void eraseMapsInvalidateHeader()
 {
   EEPROM.update(EEPROM_MAGIC_ADDR, 0xFF);
   EEPROM.update(EEPROM_MAGIC_ADDR + 1, 0xFF);
+}
+
+void eraseData()
+{
+  for (int i = 0; i < 109; i++)
+  {
+    EEPROM.write(i, 0x0);
+  }
+
+  // Invalidate header
+  EEPROM.write(EEPROM_MAGIC_ADDR, 0xFF);
+  EEPROM.write(EEPROM_MAGIC_ADDR + 1, 0xFF);
 }
 
 // mark wall at cell (x,y) in dirBit and set corresponding wall on neighbor for generic sized map
@@ -1148,7 +1169,7 @@ void solveMaze4()
 {
   // Try to load previously saved maps from EEPROM (will fail because header was invalidated)
   loadedMap4 = loadMap4FromEEPROM(&exploredMaze4[0][0], 4, 4);
-  if (loadedMap4)
+  if (loadedMap4 && !isAllZero(&exploredMaze4[0][0], 4, 4))
   {
     Serial.println("Loaded explored map4 from EEPROM.");
     Serial.println("Explored 4x4 map (hex):");
@@ -1196,7 +1217,8 @@ void solveMaze9()
 {
   // Try to load previously saved maps from EEPROM (will fail because header was invalidated)
   loadedMap9 = loadMap9FromEEPROM(&exploredMaze9[0][0], 9, 9, endPointR, endPointC);
-  if (loadedMap9)
+  loadVarsFromEEPROM(endPointR, endPointC);
+  if (loadedMap9 && !isAllZero(&exploredMaze9[0][0], 9, 9))
   {
     Serial.println("Loaded explored map9 from EEPROM.");
     Serial.println("Explored 9x9 map (hex):");
@@ -1218,7 +1240,7 @@ void solveMaze9()
     solvingMode = true;
     solve9VarChange();
     // East 0 ; North 1 ; West 2 ; South 3
-    // path9 = findPathFromUint8(&exploredMaze9[0][0], 9, 9, 0, 0, 5, 2, 0);
+    // path9 = findPathFromUint8(&exploredMaze9[0][0], 9, 9, 0, 0, 8, 8, 0);
     path9 = findPathFromUint8(&exploredMaze9[0][0], 9, 9, 0, 0, endPointR, endPointC, 0);
   }
   else
@@ -1241,7 +1263,7 @@ void solveMaze9()
     solvingMode = true;
     solve9VarChange();
     path9 = findPathFromUint8(&exploredMaze9[0][0], 9, 9, lastR, lastC, endPointR, endPointC, lastDir);
-    //path9 = findPathFromUint8(&exploredMaze9[0][0], 9, 9, lastR, lastC, 8, 8, lastDir);
+    // path9 = findPathFromUint8(&exploredMaze9[0][0], 9, 9, lastR, lastC, 8, 8, lastDir);
   }
   Serial.print("9x9 Discovered Path: ");
   Serial.println(path9);
@@ -1285,7 +1307,8 @@ void setup()
   pinMode(ECHO_RIGHT, INPUT);
 
   if (eraseEEPROM)
-    eraseMapsInvalidateHeader();
+    // eraseMapsInvalidateHeader();
+    eraseData();
 
   solveMaze4();
 
@@ -1308,7 +1331,8 @@ void loop()
   else if (distLeft < sideThreshold && distRight < sideThreshold && currentMode == LINE_FOLLOWER)
   {
     Serial.println("9x9 Maze Solving Started");
-    eraseMapsInvalidateHeader(); // Comment the function to erase the 9x9 maze map saved in EEPROM
+    solvingMode = false;
+    twoWallCorrectionGainExploring = 4.5;
     moveForward(oneCellCount / 2);
     solveMaze9();
     currentMode = MAZE_SOLVER;
