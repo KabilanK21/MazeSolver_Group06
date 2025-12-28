@@ -10,6 +10,8 @@ Making decisions at intersections using maze-solving algorithms
 
 Optimizing its path to reach the goal in the shortest possible time
 
+![Maze Solver Robot](./Images/MazeSolve06.jpeg)
+
 🚀 Features
 
 Wall Following – Navigate within a grid maze using ultrasonic sensors
